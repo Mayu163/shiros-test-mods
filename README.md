@@ -344,6 +344,7 @@ All dates are local device dates.
 | 2026-07-23 | Calibrated a `1.161` vertical-speed multiplier against Minecraft gravity/drag, raising predicted CMD payload apex height by approximately 30% across the launch range. |
 | 2026-07-23 | Extended the firework effect from 12 to 32 ticks and replaced the single six-spark emitter with two tight emitters totaling 16 sparks per tick. |
 | 2026-07-23 | Added raised-apex and full 32-tick/512-spark acceptance checks, passed all 5 server tests and the visible client test, visually accepted the long-trace/higher-arc frames, and released version `1.0.2`. |
+| 2026-07-23 | Audited the publication allowlist and ignore rules, pushed the clean project to the private `Mayu163/shiros-test-mods` GitHub repository on `main`, and published the binary/source JARs in the `v1.0.2` Release. |
 
 For the device-level audit trail, including intentions and failed test
 iterations, see [DEVICE_ACTIONS.md](DEVICE_ACTIONS.md).
