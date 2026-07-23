@@ -1,0 +1,36 @@
+{
+	"schemaVersion": 1,
+	"id": "shiros-test-mod",
+	"version": "${version}",
+	"name": "Shiro's Test Mod",
+	"description": "Adds Elytra-equipped Fly Creepers and two-payload CMD Creepers that attack villages.",
+	"authors": [
+		"Shiro"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/shiros-test-mod/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.shiro193.ShiroSTestMod"
+		],
+		"client": [
+			"com.shiro193.client.ShiroSTestModClient"
+		],
+		"fabric-gametest": [
+			"com.shiro193.test.ShiroEntityGameTests"
+		],
+		"fabric-client-gametest": [
+			"com.shiro193.client.test.ShiroClientGameTest"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

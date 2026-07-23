@@ -1,0 +1,71 @@
+# gradle
+
+.gradle/
+.cache/
+build/
+out/
+classes/
+
+# eclipse
+
+*.launch
+
+# idea
+
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# vscode
+
+.settings/
+.vscode/
+bin/
+.classpath
+.project
+
+# local Codex/agent state
+
+.agents/
+.codex/
+.openai/
+
+# local environment and credentials
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# operating systems and editors
+
+*.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# fabric
+
+run/
+logs/
+crash-reports/
+saves/
+screenshots/
+
+# java
+
+*.log
+*.tmp
+*.bak
+hs_err_*.log
+replay_*.log
+*.hprof
+*.jfr
+
+# local test environment
+
+.test-env/

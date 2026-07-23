@@ -1,0 +1,15 @@
+# Normalize portable project text while preserving platform scripts.
+* text=auto
+
+*.java          text eol=lf
+*.gradle        text eol=lf
+*.properties    text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.yml           text eol=lf
+/gradlew        text eol=lf
+*.bat           text eol=crlf
+
+# Never apply text conversion to binary project/release inputs.
+*.jar           binary
+*.png           binary
