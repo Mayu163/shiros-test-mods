@@ -16,13 +16,19 @@ import net.minecraft.world.item.SpawnEggItem;
 public final class ModItems {
 	public static final Item FLY_CREEPER_SPAWN_EGG = registerSpawnEgg("fly_creeper_spawn_egg", ModEntities.FLY_CREEPER);
 	public static final Item CMD_CREEPER_SPAWN_EGG = registerSpawnEgg("cmd_creeper_spawn_egg", ModEntities.CMD_CREEPER);
+	public static final Item SUMMON_CREEPER_SPAWN_EGG = registerSpawnEgg("summon_creeper_spawn_egg", ModEntities.SUMMON_CREEPER);
 
 	private ModItems() {
 	}
 
 	public static void initialize() {
 		CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.SPAWN_EGGS).register(output ->
-			output.insertAfter(Items.CREEPER_SPAWN_EGG, FLY_CREEPER_SPAWN_EGG, CMD_CREEPER_SPAWN_EGG)
+			output.insertAfter(
+				Items.CREEPER_SPAWN_EGG,
+				FLY_CREEPER_SPAWN_EGG,
+				CMD_CREEPER_SPAWN_EGG,
+				SUMMON_CREEPER_SPAWN_EGG
+			)
 		);
 	}
 

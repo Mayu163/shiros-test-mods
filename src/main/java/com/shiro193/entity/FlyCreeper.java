@@ -1,5 +1,7 @@
 package com.shiro193.entity;
 
+import it.unimi.dsi.fastutil.ints.IntList;
+import java.util.List;
 import java.util.EnumSet;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
@@ -22,6 +24,7 @@ import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.FireworkExplosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
@@ -32,9 +35,21 @@ public class FlyCreeper extends Creeper {
 	private static final double CRUISE_SPEED = 0.78;
 	private static final double DIVE_SPEED = 1.18;
 	private static final double BALLISTIC_IMPACT_RADIUS = 2.0;
-	public static final int TAKEOFF_FIREWORK_DURATION_TICKS = 32;
-	public static final int TAKEOFF_FIREWORK_PRIMARY_PARTICLES_PER_TICK = 10;
-	public static final int TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK = 6;
+	public static final int TAKEOFF_FIREWORK_DURATION_TICKS = 80;
+	public static final int TAKEOFF_FIREWORK_PRIMARY_PARTICLES_PER_TICK = 4;
+	public static final int TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK = 3;
+	public static final int TAKEOFF_FIREWORK_COLOR_BURST_INTERVAL_TICKS = 5;
+	// Vanilla uses no negative entity-event IDs; this range avoids packet-global casts.
+	private static final byte RAINBOW_FIREWORK_EVENT_BASE = Byte.MIN_VALUE;
+	private static final int[] RAINBOW_FIREWORK_COLORS = {
+		0xFF3B30,
+		0xFF9500,
+		0xFFCC00,
+		0x34C759,
+		0x32ADE6,
+		0x007AFF,
+		0xAF52DE
+	};
 	private static final int VANILLA_CREEPER_FUSE_TICKS = 30;
 
 	private VillageTargeting.@Nullable Target villageTarget;
@@ -52,6 +67,9 @@ public class FlyCreeper extends Creeper {
 	private double closestLaunchTargetDistanceSqr = Double.POSITIVE_INFINITY;
 	private double initialLaunchSpeed;
 	private double ballisticHorizontalSpeed;
+	private double referenceHorizontalLaunchSpeed;
+	private double legacyLaunchOriginHeightOffset;
+	private double launchOriginHeightOffset;
 	private double referenceTrajectoryApexHeight;
 	private double predictedTrajectoryApexHeight;
 	private int predictedImpactTicks;
@@ -63,6 +81,8 @@ public class FlyCreeper extends Creeper {
 	private int takeoffFireworkEffectsTriggered;
 	private int takeoffFireworkBurstsEmitted;
 	private int takeoffFireworkParticlesEmitted;
+	private int takeoffFireworkColorBurstsEmitted;
+	private int takeoffFireworkColorMask;
 
 	public FlyCreeper(EntityType<? extends FlyCreeper> type, Level level) {
 		super(type, level);
@@ -89,7 +109,10 @@ public class FlyCreeper extends Creeper {
 		Vec3 initialVelocity,
 		int predictedImpactTicks,
 		double referenceTrajectoryApexHeight,
-		double predictedTrajectoryApexHeight
+		double predictedTrajectoryApexHeight,
+		double referenceHorizontalLaunchSpeed,
+		double legacyLaunchOriginHeightOffset,
+		double launchOriginHeightOffset
 	) {
 		if (this.isPassenger()) {
 			this.stopRiding();
@@ -109,6 +132,9 @@ public class FlyCreeper extends Creeper {
 		this.closestLaunchTargetDistanceSqr = this.position().distanceToSqr(destination);
 		this.initialLaunchSpeed = initialVelocity.length();
 		this.ballisticHorizontalSpeed = Math.sqrt(initialVelocity.x * initialVelocity.x + initialVelocity.z * initialVelocity.z);
+		this.referenceHorizontalLaunchSpeed = referenceHorizontalLaunchSpeed;
+		this.legacyLaunchOriginHeightOffset = legacyLaunchOriginHeightOffset;
+		this.launchOriginHeightOffset = launchOriginHeightOffset;
 		this.referenceTrajectoryApexHeight = referenceTrajectoryApexHeight;
 		this.predictedTrajectoryApexHeight = predictedTrajectoryApexHeight;
 		this.predictedImpactTicks = Math.max(1, predictedImpactTicks);
@@ -169,6 +195,26 @@ public class FlyCreeper extends Creeper {
 		return this.ballisticLaunchTicks;
 	}
 
+	public double getHorizontalLaunchSpeed() {
+		return this.ballisticHorizontalSpeed;
+	}
+
+	public double getHorizontalLaunchSpeedMultiplier() {
+		return this.referenceHorizontalLaunchSpeed <= 0.0
+			? 0.0
+			: this.ballisticHorizontalSpeed / this.referenceHorizontalLaunchSpeed;
+	}
+
+	public double getLaunchOriginHeightOffset() {
+		return this.launchOriginHeightOffset;
+	}
+
+	public double getLaunchOriginHeightMultiplier() {
+		return this.legacyLaunchOriginHeightOffset <= 0.0
+			? 0.0
+			: this.launchOriginHeightOffset / this.legacyLaunchOriginHeightOffset;
+	}
+
 	public int getPredictedImpactTicks() {
 		return this.predictedImpactTicks;
 	}
@@ -221,6 +267,14 @@ public class FlyCreeper extends Creeper {
 
 	public int getTakeoffFireworkParticlesEmitted() {
 		return this.takeoffFireworkParticlesEmitted;
+	}
+
+	public int getTakeoffFireworkColorBurstsEmitted() {
+		return this.takeoffFireworkColorBurstsEmitted;
+	}
+
+	public int getTakeoffFireworkDistinctColorCount() {
+		return Integer.bitCount(this.takeoffFireworkColorMask);
 	}
 
 	public @Nullable Vec3 getAttackDestination() {
@@ -292,7 +346,48 @@ public class FlyCreeper extends Creeper {
 		this.takeoffFireworkBurstsEmitted++;
 		this.takeoffFireworkParticlesEmitted += TAKEOFF_FIREWORK_PRIMARY_PARTICLES_PER_TICK
 			+ TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK;
+		int elapsedTicks = TAKEOFF_FIREWORK_DURATION_TICKS - this.takeoffFireworkTicks;
+		if (elapsedTicks % TAKEOFF_FIREWORK_COLOR_BURST_INTERVAL_TICKS == 0) {
+			int colorIndex = (elapsedTicks / TAKEOFF_FIREWORK_COLOR_BURST_INTERVAL_TICKS) % RAINBOW_FIREWORK_COLORS.length;
+			serverLevel.broadcastEntityEvent(this, (byte)(RAINBOW_FIREWORK_EVENT_BASE + colorIndex));
+			this.takeoffFireworkColorBurstsEmitted++;
+			this.takeoffFireworkColorMask |= 1 << colorIndex;
+		}
 		this.takeoffFireworkTicks--;
+	}
+
+	@Override
+	public void handleEntityEvent(byte id) {
+		int colorIndex = id - RAINBOW_FIREWORK_EVENT_BASE;
+		if (colorIndex < 0 || colorIndex >= RAINBOW_FIREWORK_COLORS.length || !this.level().isClientSide()) {
+			super.handleEntityEvent(id);
+			return;
+		}
+
+		Vec3 movement = this.getDeltaMovement();
+		Vec3 trailOffset = movement.lengthSqr() > 1.0E-6
+			? movement.normalize().scale(-0.75)
+			: new Vec3(0.0, -0.75, 0.0);
+		Vec3 emitter = this.position().add(0.0, this.getBbHeight() * 0.35, 0.0).add(trailOffset);
+		int color = RAINBOW_FIREWORK_COLORS[colorIndex];
+		int fadeColor = RAINBOW_FIREWORK_COLORS[(colorIndex + 1) % RAINBOW_FIREWORK_COLORS.length];
+		this.level().createFireworks(
+			emitter.x,
+			emitter.y,
+			emitter.z,
+			movement.x * 0.15,
+			movement.y * 0.15,
+			movement.z * 0.15,
+			List.of(
+				new FireworkExplosion(
+					FireworkExplosion.Shape.BURST,
+					IntList.of(color),
+					IntList.of(fadeColor),
+					true,
+					false
+				)
+			)
+		);
 	}
 
 	private boolean acquireTarget() {

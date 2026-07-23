@@ -3,13 +3,11 @@ package com.shiro193.client.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.model.geom.EntityModelSet;
 import net.minecraft.client.model.geom.ModelLayers;
-import net.minecraft.client.model.monster.creeper.CreeperModel;
 import net.minecraft.client.model.object.equipment.ElytraModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.EquipmentLayerRenderer;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
-import net.minecraft.client.renderer.entity.state.CreeperRenderState;
 import net.minecraft.client.renderer.entity.state.HumanoidRenderState;
 import net.minecraft.client.resources.model.EquipmentClientInfo;
 import net.minecraft.core.component.DataComponents;
@@ -19,12 +17,12 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.equipment.EquipmentAsset;
 import net.minecraft.world.item.equipment.Equippable;
 
-final class ElytraCreeperLayer extends RenderLayer<CreeperRenderState, CreeperModel> {
+final class ElytraCreeperLayer extends RenderLayer<CreeperVariantRenderState, CreeperVariantModel> {
 	private final ElytraModel elytraModel;
 	private final EquipmentLayerRenderer equipmentRenderer;
 
 	ElytraCreeperLayer(
-		RenderLayerParent<CreeperRenderState, CreeperModel> parent,
+		RenderLayerParent<CreeperVariantRenderState, CreeperVariantModel> parent,
 		EntityModelSet modelSet,
 		EquipmentLayerRenderer equipmentRenderer
 	) {
@@ -38,7 +36,7 @@ final class ElytraCreeperLayer extends RenderLayer<CreeperRenderState, CreeperMo
 		PoseStack poseStack,
 		SubmitNodeCollector submitNodeCollector,
 		int lightCoords,
-		CreeperRenderState state,
+		CreeperVariantRenderState state,
 		float yRot,
 		float xRot
 	) {

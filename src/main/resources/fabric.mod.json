@@ -3,7 +3,7 @@
 	"id": "shiros-test-mod",
 	"version": "${version}",
 	"name": "Shiro's Test Mod",
-	"description": "Adds Elytra-equipped Fly Creepers and two-payload CMD Creepers that attack villages.",
+	"description": "Adds Fly, CMD, and Summon Creepers with ballistic village attacks, timed reinforcements, and vanilla-asset equipment/effects.",
 	"authors": [
 		"Shiro"
 	],
