@@ -321,3 +321,13 @@ The exact current `1.1.0` working tree is good to go for Minecraft 26.2 local
 development and testing. Because it includes pre-existing uncommitted expansion
 work, review and commit that work deliberately before publishing another
 release.
+
+## 2026-07-23 14:37–14:41 beta publication addendum
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 14:37 | Audited the working tree, remote branch/tag state, GitHub authentication, and the two `1.1.0` artifacts before publishing. | Avoid overwriting an existing branch/tag/release and bind the publication to the already tested files. | Confirmed `beta` and `v1.1.0` did not exist remotely, GitHub authentication was active for `Mayu163`, and only the stable `v1.0.2` Release existed. |
+| 14:38 | Created local branch `beta`, staged the complete verified `1.1.0` source/resource/test/documentation state, and committed it as `cfa2ca5` (`Add Summon Creeper beta features`). | Keep `main` unchanged and publish the requested beta state as a coherent commit. | Commit contains 21 changed files; generated JARs remained excluded from Git history. |
+| 14:39 | Pushed `beta` to `origin` and configured local upstream tracking. | Publish the current state to the requested GitHub branch. | **PASS — remote `beta` was created at `cfa2ca5e44a6e9c4b50e0e547f0fac04c61696ce`; `main` was not modified.** |
+| 14:40 | Created GitHub prerelease `v1.1.0`, targeted it at `beta`, and uploaded exactly the binary and source JARs. | Distribute the tested patch-number `1.1.0` build without marking it as the stable/latest release. | **PASS — prerelease is published and not a draft:** `https://github.com/Mayu163/shiros-test-mods/releases/tag/v1.1.0`. |
+| 14:40 | Queried the remote refs and GitHub Release asset metadata after publication. | Verify tag placement, prerelease flags, upload completion, sizes, and checksums independently of the create command. | `beta` and `v1.1.0` both resolved to `cfa2ca5e44a6e9c4b50e0e547f0fac04c61696ce`; both assets reported `uploaded`. Binary: 68,265 bytes, SHA-256 `d9e450116a81e2f6ea06b31cec09accd9641a3d99e1821a66240100dd28e8af5`. Sources: 29,515 bytes, SHA-256 `4c7d0160ad847054024e4849c06ec9f2f51d7207907abf49283af0525a92454c`. |
