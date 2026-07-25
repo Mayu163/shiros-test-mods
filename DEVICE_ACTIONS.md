@@ -297,9 +297,9 @@ was performed.
 - Dedicated server: **PASS — 7/7 registered tests**
 - Visible integrated client: **PASS**
 - Current binary:
-  `build/libs/shiros-test-mod-1.0.5-beta.jar`
+  `build/libs/shiros-test-mod-1.0.5.1-beta.jar`
 - Current sources:
-  `build/libs/shiros-test-mod-1.0.5-beta-sources.jar`
+  `build/libs/shiros-test-mod-1.0.5.1-beta-sources.jar`
 - Machine-readable server report:
   `build/gametest-results.xml`
 - Current visible evidence:
@@ -317,7 +317,7 @@ Expected non-blocking development-client messages remain:
 None caused a gameplay assertion failure, renderer/resource failure, network
 disconnect, or nonzero exit in the accepted final run.
 
-The exact current `1.0.5-beta` working tree is good to go for Minecraft 26.2
+The exact current `1.0.5.1-beta` working tree is good to go for Minecraft 26.2
 local development and testing. It contains the stable `1.0.3` gameplay feature
 set plus the silent continuous trail and explicit Creeper-sourced Obsidian
 protection fixes.
@@ -354,3 +354,12 @@ protection fixes.
 | 17:54–18:04 | Updated the visible integrated-client test to wait for a true latter-half descent, assert the active no-gap trail there, capture all four frames, and inspect the arc screenshot at original resolution. | Verify actual rendered continuity rather than relying only on server telemetry. | **PASS — integrated-client test exited successfully.** The latter-half arc frame visibly shows a continuous white-core, multicolor trail; exact-one launch sound, targeting, fuse prediction, contact, and rendering checks also passed. |
 | 18:02–18:04 | Ran a clean full build, the final server suite, and the final client suite after locking both velocity axes. | Validate the exact final source state. | **PASS — build successful, server 8/8, client successful.** Expected offline Mojang/Realms, anisotropic-filtering, and empty client-resource warnings remained non-blocking. |
 | 18:24–18:27 | Re-versioned the verified update as `1.0.5-beta`, rebuilt it, reran both real Minecraft suites, advanced `beta`, and published the GitHub prerelease with binary and sources. | Deliver the completed flight invariant without updating remote `main`. | **PASS — clean build, server 8/8, visible client test, beta push, prerelease metadata, and both uploaded assets were verified.** |
+
+## 2026-07-25 underground CMD launch crash
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 18:35–18:40 | Inspected `错误报告-25-07-2026_18.35.33.zip`, including the server crash report and latest game log. | Separate the actual failure from unrelated shader, Sodium, Iris, VoxelMap, and authentication warnings. | Identified an uncaught `IllegalStateException` from `FlyCreeper.createLaunchPlan`: a CMD Creeper at approximately Y=4 attempted to launch through overhead terrain toward a target approximately 67 blocks higher, so no terrain-clearing ballistic arc existed. |
+| 18:40–18:43 | Changed launch planning to return a bounded failure result, added an overhead takeoff check and bounded numerical-planning failures, and made CMD preflight its explicit launch origin before detaching its passenger. | Preserve the global high-arc/terrain-clearance invariant without allowing an impossible launch to crash the server or degrade to a low path. | An impossible launch is now refused atomically: both Fly Creepers remain attached, no launch sound or trail starts, the throw count remains unchanged, and the AI waits 40 ticks before retrying. |
+| 18:41–18:44 | Added a dedicated regression that reproduces the report's approximately 24.5-block horizontal and 66.6-block vertical target offset under a solid overhead column; corrected the first implementation after the test caught unreliable same-tick passenger restoration. | Verify both crash prevention and passenger-state integrity under the reported conditions. | **PASS — all 9 required dedicated-server GameTests passed.** The regression confirms refusal, two retained passengers, zero launched payloads, and zero completed throws. |
+| 18:44–18:45 | Ran the visible integrated-client GameTest after the server regression. | Ensure the crash fix preserves the previous launch sound, continuous rainbow trail, fixed ballistic arc, target-contact, and rendering behavior. | **PASS — client test completed and refreshed all four screenshots.** |

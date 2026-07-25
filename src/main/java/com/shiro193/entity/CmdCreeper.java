@@ -143,12 +143,12 @@ public class CmdCreeper extends Creeper {
 			return false;
 		}
 
-		payload.stopRiding();
 		double legacyLaunchHeightOffset = this.getBbHeight() + 0.35;
 		double launchHeightOffset = legacyLaunchHeightOffset * LAUNCH_ORIGIN_HEIGHT_MULTIPLIER;
 		Vec3 launchOrigin = this.position().add(0.0, launchHeightOffset, 0.0);
-		payload.snapTo(launchOrigin.x, launchOrigin.y, launchOrigin.z, this.getYRot(), -10.0F);
-		payload.launchAt(target);
+		if (!payload.launchFrom(launchOrigin, target)) {
+			return false;
+		}
 		this.lastPredictedHitTicks = payload.getPredictedImpactTicks();
 		this.totalThrown++;
 		return true;
@@ -226,8 +226,8 @@ public class CmdCreeper extends Creeper {
 			CmdCreeper.this.inRangeHoldTicks++;
 			Vec3 movement = CmdCreeper.this.getDeltaMovement();
 			CmdCreeper.this.setDeltaMovement(0.0, movement.y, 0.0);
-			if (--this.throwCooldown <= 0 && CmdCreeper.this.throwOneAt(targetPosition)) {
-				this.throwCooldown = 24;
+			if (--this.throwCooldown <= 0) {
+				this.throwCooldown = CmdCreeper.this.throwOneAt(targetPosition) ? 24 : 40;
 			}
 		}
 	}

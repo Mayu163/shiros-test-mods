@@ -311,6 +311,37 @@ public final class ShiroEntityGameTests {
 		});
 	}
 
+	@GameTest(maxTicks = 1, skyAccess = true, padding = 128)
+	public void undergroundCmdCreeperRefusesImpossibleLaunchWithoutCrashing(GameTestHelper helper) {
+		CmdCreeper cmd = helper.spawn(ModEntities.CMD_CREEPER, new Vec3(2.0, 2.0, 2.0), EntitySpawnReason.NATURAL);
+		cmd.setNoAi(true);
+		for (int y = 6; y <= 72; y++) {
+			helper.setBlock(new BlockPos(2, y, 2), Blocks.STONE);
+		}
+
+		List<FlyCreeper> payloads = cmd.getPassengers()
+			.stream()
+			.map(FlyCreeper.class::cast)
+			.toList();
+		require(helper, payloads.size() == CmdCreeper.MAX_PAYLOAD, "Underground CMD test did not start with two payloads.");
+
+		Vec3 elevatedTarget = cmd.position().add(17.8, 66.6, -16.8);
+		require(
+			helper,
+			!cmd.throwOneAt(elevatedTarget),
+			"CMD Creeper launched a payload through terrain instead of refusing the impossible arc."
+		);
+		require(
+			helper,
+			cmd.getPayloadCount() == CmdCreeper.MAX_PAYLOAD
+				&& payloads.stream().allMatch(FlyCreeper::isPassenger)
+				&& payloads.stream().noneMatch(FlyCreeper::wasLaunched)
+				&& cmd.getTotalThrown() == 0,
+			"An impossible CMD launch detached, launched, or lost a Fly Creeper payload."
+		);
+		helper.succeed();
+	}
+
 	@GameTest(maxTicks = 320, skyAccess = true, padding = 128)
 	public void everyFlyCreeperLaunchUsesFixedTerrainAwareHighArcAndContinuousTrail(GameTestHelper helper) {
 		for (int y = 1; y <= 48; y++) {

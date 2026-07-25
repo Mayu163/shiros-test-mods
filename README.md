@@ -11,7 +11,7 @@ gold-helmeted summoner that calls in timed reinforcements.
 | Mod name | Shiro's Test Mod |
 | Mod ID | `shiros-test-mod` |
 | Java package | `com.shiro193` |
-| Mod version | `1.0.5-beta` |
+| Mod version | `1.0.5.1-beta` |
 | Minecraft | `26.2` |
 | Fabric Loader | `0.19.3` or newer |
 | Fabric API | `0.155.2+26.2` |
@@ -304,13 +304,13 @@ changing the machine-wide Java configuration.
 After a build, the distributable mod is:
 
 ```text
-build/libs/shiros-test-mod-1.0.5-beta.jar
+build/libs/shiros-test-mod-1.0.5.1-beta.jar
 ```
 
 The matching source archive is:
 
 ```text
-build/libs/shiros-test-mod-1.0.5-beta-sources.jar
+build/libs/shiros-test-mod-1.0.5.1-beta-sources.jar
 ```
 
 ## Real-environment acceptance design
@@ -323,6 +323,7 @@ The test plan uses Minecraft itself rather than mocks.
 | Natural spawn parity | Dedicated GameTest server | For every biome with a vanilla Creeper, the Fly and CMD entries have the same weight, minimum group, and maximum group. |
 | CMD capacity, helmet, and range hold | Dedicated GameTest server | A created CMD wears chainmail, has exactly two Elytra-equipped Fly passengers, rejects a third, and records zero approach requests while its target starts inside the 40-block throw range. |
 | Global high-arc launch invariant | Dedicated GameTest server | Real CMD capture/throws plus zero-distance, short, diagonal, 90-block, elevated-target, lowered-target, elevated-origin, and 48-block-ridge launches all rise at least 35 blocks. Elevated targets and the ridge force higher plans with terrain clearance. |
+| Obstructed launch safety | Dedicated GameTest server | A CMD Creeper trapped beneath solid overhead terrain refuses an impossible high-arc launch without throwing an exception, detaching either payload, or incrementing its throw count. |
 | Fixed launch course | Dedicated GameTest server | A second launch request plus horizontal and vertical velocity disturbance cannot change the stored destination, initial velocity, heading, or gravity schedule. |
 | Silent continuous rainbow trail | Dedicated and visible client GameTests | Autonomous and CMD takeoffs trigger once and record exactly one launch sound. Both payloads emit colored particles without a one-tick gap through the latter half and complete descent, cover all seven color phases, and the real-client descent frame visibly shows the multicolor trail. |
 | Prediction-timed ballistic attack | Dedicated GameTest server | A nearby Villager is acquired and both payloads are thrown. Each receives the derived ignition schedule, reaches within 2 blocks and within 3 ticks of its hit prediction, then detonates within 2 ticks. |
@@ -336,7 +337,7 @@ The test plan uses Minecraft itself rather than mocks.
 Latest verified results on 2026-07-25:
 
 - `build`: **PASS**
-- Server GameTests: **PASS — 8/8 registered tests**
+- Server GameTests: **PASS — 9/9 registered tests**
 - Visible client GameTest: **PASS**
 - Trail inspection: **PASS — long, continuous, visible multicolor arc**
 - Visible client counts: **3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, 1 Villager**
@@ -419,6 +420,7 @@ All dates are local device dates.
 | 2026-07-25 | Published the verified sound, trail, and Obsidian fixes as the `1.0.4-beta` prerelease. |
 | 2026-07-25 | Replaced the 80-tick trail cap with flight-lifetime emission and centralized every payload launch in a terrain-aware, immutable ballistic planner with a global 35-block minimum apex; all 8 server GameTests and the visible client test passed. |
 | 2026-07-25 | Published the verified flight-long trail and global high-arc invariant as the `1.0.5-beta` prerelease from `beta`. |
+| 2026-07-25 | Fixed an underground CMD Creeper crash by making impossible terrain-clearing plans fail safely before passenger detachment; all 9 server GameTests and the visible client test passed. |
 
 For the device-level audit trail, including intentions and failed test
 iterations, see [DEVICE_ACTIONS.md](DEVICE_ACTIONS.md).

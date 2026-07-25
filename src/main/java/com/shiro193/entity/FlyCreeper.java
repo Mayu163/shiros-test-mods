@@ -113,15 +113,28 @@ public class FlyCreeper extends Creeper {
 		this.goalSelector.addGoal(6, new RandomLookAroundGoal(this));
 	}
 
-	public void launchAt(Vec3 destination) {
+	public boolean launchAt(Vec3 destination) {
+		return this.launchFrom(this.position(), destination, false);
+	}
+
+	public boolean launchFrom(Vec3 launchOrigin, Vec3 destination) {
+		return this.launchFrom(launchOrigin, destination, true);
+	}
+
+	private boolean launchFrom(Vec3 launchOrigin, Vec3 destination, boolean relocateToLaunchOrigin) {
 		if (this.launched && !this.launchFlightComplete) {
-			return;
+			return false;
+		}
+		LaunchPlan launchPlan = this.createLaunchPlan(launchOrigin, destination);
+		if (launchPlan == null) {
+			return false;
 		}
 		if (this.isPassenger()) {
 			this.stopRiding();
 		}
-
-		LaunchPlan launchPlan = this.createLaunchPlan(destination);
+		if (relocateToLaunchOrigin) {
+			this.snapTo(launchOrigin.x, launchOrigin.y, launchOrigin.z, this.getYRot(), -10.0F);
+		}
 		this.forcedDestination = destination;
 		this.launched = true;
 		this.flightPhase = FlightPhase.BALLISTIC_ASCENT;
@@ -159,6 +172,7 @@ public class FlyCreeper extends Creeper {
 		this.setNoGravity(false);
 		this.setDeltaMovement(this.initialLaunchVelocity);
 		this.triggerTakeoffFirework();
+		return true;
 	}
 
 	public FlightPhase getFlightPhase() {
@@ -431,8 +445,15 @@ public class FlyCreeper extends Creeper {
 		return this.flightPhase != FlightPhase.SEARCHING || !this.onGround();
 	}
 
-	private LaunchPlan createLaunchPlan(Vec3 destination) {
-		Vec3 origin = this.position();
+	private @Nullable LaunchPlan createLaunchPlan(Vec3 origin, Vec3 destination) {
+		int takeoffSurfaceY = this.level().getHeight(
+			Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+			Mth.floor(origin.x),
+			Mth.floor(origin.z)
+		);
+		if (takeoffSurfaceY > origin.y + this.getBbHeight() + 0.5) {
+			return null;
+		}
 		double targetHeightOffset = destination.y - origin.y;
 		double minimumRequiredApex = Math.max(
 			MINIMUM_LAUNCH_APEX_HEIGHT,
@@ -443,8 +464,14 @@ public class FlyCreeper extends Creeper {
 		boolean terrainRaised = false;
 
 		for (int attempt = 0; attempt < 64; attempt++) {
-			double verticalSpeed = solveInitialVerticalSpeedForApex(candidateApex);
+			Double verticalSpeed = solveInitialVerticalSpeedForApex(candidateApex);
+			if (verticalSpeed == null) {
+				return null;
+			}
 			int flightTicks = estimateBallisticFlightTicks(verticalSpeed, targetHeightOffset);
+			if (flightTicks < 1) {
+				return null;
+			}
 			minimumTerrainClearance = this.estimateMinimumTerrainClearance(
 				origin,
 				destination,
@@ -472,9 +499,7 @@ public class FlyCreeper extends Creeper {
 			);
 		}
 
-		throw new IllegalStateException(
-			"Unable to plan a terrain-clearing Fly Creeper arc from " + origin + " to " + destination
-		);
+		return null;
 	}
 
 	private double estimateMinimumTerrainClearance(
@@ -512,9 +537,15 @@ public class FlyCreeper extends Creeper {
 		return minimumClearance;
 	}
 
-	private static double solveInitialVerticalSpeedForApex(double requiredApexHeight) {
+	private static @Nullable Double solveInitialVerticalSpeedForApex(double requiredApexHeight) {
 		double low = 0.0;
 		double high = 8.0;
+		while (estimateBallisticApexHeight(high) < requiredApexHeight && high < 64.0) {
+			high *= 2.0;
+		}
+		if (estimateBallisticApexHeight(high) < requiredApexHeight) {
+			return null;
+		}
 		for (int iteration = 0; iteration < 64; iteration++) {
 			double candidate = (low + high) * 0.5;
 			if (estimateBallisticApexHeight(candidate) < requiredApexHeight) {
@@ -555,7 +586,7 @@ public class FlyCreeper extends Creeper {
 				return tick;
 			}
 		}
-		throw new IllegalStateException("Fly Creeper ballistic arc did not converge within the planning limit.");
+		return -1;
 	}
 
 	private record LaunchPlan(
