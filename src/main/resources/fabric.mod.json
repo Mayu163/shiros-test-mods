@@ -27,6 +27,9 @@
 			"com.shiro193.client.test.ShiroClientGameTest"
 		]
 	},
+	"mixins": [
+		"shiros-test-mod.mixins.json"
+	],
 	"depends": {
 		"fabricloader": ">=0.19.3",
 		"minecraft": "~26.2",

@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "com.shiro193.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+		"CreeperExplosionProtectionMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

@@ -297,9 +297,9 @@ was performed.
 - Dedicated server: **PASS — 7/7 registered tests**
 - Visible integrated client: **PASS**
 - Current binary:
-  `build/libs/shiros-test-mod-1.0.3.jar`
+  `build/libs/shiros-test-mod-1.0.4-beta.jar`
 - Current sources:
-  `build/libs/shiros-test-mod-1.0.3-sources.jar`
+  `build/libs/shiros-test-mod-1.0.4-beta-sources.jar`
 - Machine-readable server report:
   `build/gametest-results.xml`
 - Current visible evidence:
@@ -317,10 +317,10 @@ Expected non-blocking development-client messages remain:
 None caused a gameplay assertion failure, renderer/resource failure, network
 disconnect, or nonzero exit in the accepted final run.
 
-The exact current `1.0.3` working tree is good to go for Minecraft 26.2 local
-development and testing. It contains the gameplay feature set originally
-validated and published as the `1.1.0` prerelease, now consistently versioned
-and published as stable `1.0.3`.
+The exact current `1.0.4-beta` working tree is good to go for Minecraft 26.2
+local development and testing. It contains the stable `1.0.3` gameplay feature
+set plus the silent continuous trail and explicit Creeper-sourced Obsidian
+protection fixes.
 
 ## 2026-07-23 14:37–14:41 beta publication addendum
 
@@ -331,3 +331,15 @@ and published as stable `1.0.3`.
 | 14:39 | Pushed `beta` to `origin` and configured local upstream tracking. | Publish the current state to the requested GitHub branch. | **PASS — remote `beta` was created at `cfa2ca5e44a6e9c4b50e0e547f0fac04c61696ce`; `main` was not modified.** |
 | 14:40 | Created GitHub prerelease `v1.1.0`, targeted it at `beta`, and uploaded exactly the binary and source JARs. | Distribute the tested patch-number `1.1.0` build without marking it as the stable/latest release. | **PASS — prerelease is published and not a draft:** `https://github.com/Mayu163/shiros-test-mods/releases/tag/v1.1.0`. |
 | 14:40 | Queried the remote refs and GitHub Release asset metadata after publication. | Verify tag placement, prerelease flags, upload completion, sizes, and checksums independently of the create command. | `beta` and `v1.1.0` both resolved to `cfa2ca5e44a6e9c4b50e0e547f0fac04c61696ce`; both assets reported `uploaded`. Binary: 68,265 bytes, SHA-256 `d9e450116a81e2f6ea06b31cec09accd9641a3d99e1821a66240100dd28e8af5`. Sources: 29,515 bytes, SHA-256 `4c7d0160ad847054024e4849c06ec9f2f51d7207907abf49283af0525a92454c`. |
+
+## 2026-07-25 silent trail and Obsidian protection
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 16:55–17:00 | Traced the CMD payload trail, mapped client firework implementation, vanilla Creeper explosion path, and entity-based explosion calculator. | Identify the repeated sound source and the narrowest Creeper-only block-protection point. | Confirmed each color event invoked `createFireworks`, whose client starter plays a blast sound. Selected silent colored dust particles and a calculator mixin that vetoes Obsidian only for Creeper sources. |
+| 17:00 | Replaced repeated firework explosions with every-tick colored dust at two movement-relative emitters, retained the white spark core, and added exact-one launch-sound and continuous-emission telemetry. | Produce a long visible rainbow trail with one launch sound and no repeated firework blast sounds. | Common and client sources compiled successfully. |
+| 17:00 | Added `CreeperExplosionProtectionMixin` and strengthened the explosion arena with maximal-power calculator assertions plus real vanilla/Fly/CMD/Summon detonations and dirt controls. | Make Obsidian protection explicit and prove ordinary block damage remains enabled. | Mixin loaded in the real server and client environments; the new calculator assertions passed. |
+| 17:01 | Ran the first dedicated GameTest suite. | Exercise the new behavior in Minecraft itself. | Six tests passed; the four-Creeper explosion arena exceeded its old 55-tick completion allowance before all entities finished. No Obsidian or trail assertion failed. |
+| 17:02–17:03 | Increased only the multi-Creeper arena allowance to 80 ticks, added unfinished-entity diagnostics, and reran the dedicated suite. | Remove timing flakiness without weakening behavioral assertions. | **PASS — all 7 registered required GameTests passed.** |
+| 17:03–17:04 | Ran the visible integrated-client GameTest and inspected the refreshed takeoff and ballistic-arc screenshots at original resolution. | Verify actual client synchronization, silent-particle trail rendering, color continuity, and existing entity/trajectory visuals. | **PASS — client test exited successfully; screenshots show a long continuous white-core trail with distinct red/orange/yellow/green/cyan color segments.** |
+| 17:17–17:20 | Re-versioned the verified working tree as `1.0.4-beta`, rebuilt the distributable artifacts, reran both real Minecraft suites, pushed `main`, and published a GitHub prerelease. | Deliver the completed fixes without replacing the stable `v1.0.3` release. | Build, all 7 server GameTests, visible client GameTest, release tag, and asset metadata were verified. |

@@ -25,6 +25,7 @@ import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.SpawnEggItem;
+import net.minecraft.world.level.EntityBasedExplosionDamageCalculator;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.MobSpawnSettings;
@@ -208,6 +209,11 @@ public final class ShiroEntityGameTests {
 			);
 			require(
 				helper,
+				initialPayloads.stream().allMatch(payload -> payload.getTakeoffFireworkLaunchSoundsPlayed() == 1),
+				"A thrown Fly Creeper did not play exactly one launch sound."
+			);
+			require(
+				helper,
 				initialPayloads.stream().allMatch(
 					payload -> payload.getTakeoffFireworkBurstsEmitted() > 0
 						&& FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS >= 60
@@ -217,10 +223,20 @@ public final class ShiroEntityGameTests {
 			require(
 				helper,
 				initialPayloads.stream().allMatch(
-					payload -> payload.getTakeoffFireworkColorBurstsEmitted() >= 7
+					payload -> payload.getTakeoffColorTrailTicksEmitted() >= 7
 						&& payload.getTakeoffFireworkDistinctColorCount() == 7
 				),
 				"A thrown Fly Creeper did not emit all seven vanilla firework color phases."
+			);
+			require(
+				helper,
+				initialPayloads.stream().allMatch(
+					payload -> payload.getTakeoffColorTrailTicksEmitted() == payload.getTakeoffFireworkBurstsEmitted()
+						&& payload.getTakeoffColorParticlesEmitted()
+							== payload.getTakeoffColorTrailTicksEmitted()
+								* FlyCreeper.TAKEOFF_COLOR_PARTICLES_PER_TICK
+				),
+				"A thrown Fly Creeper's colorful trail was not continuous on every active tick."
 			);
 			require(
 				helper,
@@ -292,7 +308,9 @@ public final class ShiroEntityGameTests {
 			require(helper, fly.hasEverBecomeAirborne(), "Fly Creeper never entered flight.");
 			require(
 				helper,
-				fly.getTakeoffFireworkEffectsTriggered() == 1 && fly.getTakeoffFireworkBurstsEmitted() > 0,
+				fly.getTakeoffFireworkEffectsTriggered() == 1
+					&& fly.getTakeoffFireworkLaunchSoundsPlayed() == 1
+					&& fly.getTakeoffFireworkBurstsEmitted() > 0,
 				"Fly Creeper did not emit exactly one vanilla firework takeoff effect."
 			);
 			require(helper, fly.hasEverDived(), "Fly Creeper never entered its dive.");
@@ -353,7 +371,7 @@ public final class ShiroEntityGameTests {
 		});
 	}
 
-	@GameTest(maxTicks = 55, skyAccess = true)
+	@GameTest(maxTicks = 80, skyAccess = true)
 	public void everyCreeperExplosionPreservesObsidianAndBedrock(GameTestHelper helper) {
 		List<BlockPos> creeperPositions = List.of(
 			new BlockPos(1, 2, 3),
@@ -376,6 +394,29 @@ public final class ShiroEntityGameTests {
 			helper.setBlock(bedrockPositions.get(index), Blocks.BEDROCK);
 			helper.setBlock(controlPositions.get(index), Blocks.DIRT);
 			Creeper creeper = creepers.get(index);
+			EntityBasedExplosionDamageCalculator calculator = new EntityBasedExplosionDamageCalculator(creeper);
+			require(
+				helper,
+				!calculator.shouldBlockExplode(
+					null,
+					helper.getLevel(),
+					helper.absolutePos(obsidianPositions.get(index)),
+					Blocks.OBSIDIAN.defaultBlockState(),
+					Float.MAX_VALUE
+				),
+				"A Creeper explosion calculator did not explicitly veto obsidian destruction."
+			);
+			require(
+				helper,
+				calculator.shouldBlockExplode(
+					null,
+					helper.getLevel(),
+					helper.absolutePos(controlPositions.get(index)),
+					Blocks.DIRT.defaultBlockState(),
+					Float.MAX_VALUE
+				),
+				"Creeper explosion protection incorrectly vetoed an ordinary dirt block."
+			);
 			creeper.setNoAi(true);
 			creeper.setNoGravity(true);
 			if (creeper instanceof CmdCreeper cmd) {
@@ -389,7 +430,15 @@ public final class ShiroEntityGameTests {
 		}
 
 		helper.succeedWhen(() -> {
-			require(helper, creepers.stream().allMatch(Entity::isRemoved), "Not every Creeper completed its explosion.");
+			require(
+				helper,
+				creepers.stream().allMatch(Entity::isRemoved),
+				"Not every Creeper completed its explosion: "
+					+ creepers.stream()
+						.filter(creeper -> !creeper.isRemoved())
+						.map(creeper -> creeper.getType().toString() + "(ignited=" + creeper.isIgnited() + ")")
+						.toList()
+			);
 			for (BlockPos obsidianPos : obsidianPositions) {
 				require(helper, helper.getBlockState(obsidianPos).is(Blocks.OBSIDIAN), "A Creeper explosion destroyed obsidian.");
 			}

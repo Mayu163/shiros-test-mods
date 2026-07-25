@@ -200,7 +200,7 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 							scene,
 							fly -> fly.wasLaunched()
 								&& fly.isTakeoffFireworkActive()
-								&& fly.getTakeoffFireworkColorBurstsEmitted() >= 2
+								&& fly.getTakeoffColorTrailTicksEmitted() >= 2
 								&& fly.getTakeoffFireworkDistinctColorCount() >= 2
 						)
 						.stream()
@@ -222,20 +222,23 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 					.stream()
 					.findFirst()
 					.orElseThrow(() -> new AssertionError("No launched Fly Creeper had an active takeoff firework effect."));
-				if (payload.getTakeoffFireworkEffectsTriggered() != 1 || payload.getTakeoffFireworkBurstsEmitted() <= 0) {
+				if (payload.getTakeoffFireworkEffectsTriggered() != 1
+					|| payload.getTakeoffFireworkLaunchSoundsPlayed() != 1
+					|| payload.getTakeoffFireworkBurstsEmitted() <= 0) {
 					throw new AssertionError(
 						"Visible payload did not emit exactly one takeoff firework effect (triggers="
 							+ payload.getTakeoffFireworkEffectsTriggered()
+							+ ", launchSounds=" + payload.getTakeoffFireworkLaunchSoundsPlayed()
 							+ ", bursts=" + payload.getTakeoffFireworkBurstsEmitted() + ")."
 					);
 				}
 				if (FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS < 60
-					|| payload.getTakeoffFireworkColorBurstsEmitted() < 2
+					|| payload.getTakeoffColorTrailTicksEmitted() < 2
 					|| payload.getTakeoffFireworkDistinctColorCount() < 2) {
 					throw new AssertionError(
 						"Visible payload did not begin its 3+ second rainbow firework sequence (duration="
 							+ FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS
-							+ ", colorBursts=" + payload.getTakeoffFireworkColorBurstsEmitted()
+							+ ", colorTrailTicks=" + payload.getTakeoffColorTrailTicksEmitted()
 							+ ", colors=" + payload.getTakeoffFireworkDistinctColorCount() + ")."
 					);
 				}
@@ -245,6 +248,12 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 							+ FlyCreeper.TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK
 					)) {
 					throw new AssertionError("Visible payload did not emit the denser firework trace.");
+				}
+				if (payload.getTakeoffColorTrailTicksEmitted() != payload.getTakeoffFireworkBurstsEmitted()
+					|| payload.getTakeoffColorParticlesEmitted()
+						!= payload.getTakeoffColorTrailTicksEmitted()
+							* FlyCreeper.TAKEOFF_COLOR_PARTICLES_PER_TICK) {
+					throw new AssertionError("Visible payload did not emit silent colored trail particles every active tick.");
 				}
 				if (payload.getPredictedImpactTicks() <= 0
 					|| payload.getScheduledFuseIgnitionTick()
