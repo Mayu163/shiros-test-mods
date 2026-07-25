@@ -11,7 +11,7 @@ gold-helmeted summoner that calls in timed reinforcements.
 | Mod name | Shiro's Test Mod |
 | Mod ID | `shiros-test-mod` |
 | Java package | `com.shiro193` |
-| Mod version | `1.1.0` |
+| Mod version | `1.0.3` |
 | Minecraft | `26.2` |
 | Fabric Loader | `0.19.3` or newer |
 | Fabric API | `0.155.2+26.2` |
@@ -297,13 +297,13 @@ changing the machine-wide Java configuration.
 After a build, the distributable mod is:
 
 ```text
-build/libs/shiros-test-mod-1.1.0.jar
+build/libs/shiros-test-mod-1.0.3.jar
 ```
 
 The matching source archive is:
 
 ```text
-build/libs/shiros-test-mod-1.1.0-sources.jar
+build/libs/shiros-test-mod-1.0.3-sources.jar
 ```
 
 ## Real-environment acceptance design
@@ -405,6 +405,7 @@ All dates are local device dates.
 | 2026-07-23 | Added an explosion arena proving vanilla, Fly, CMD, and Summon Creepers preserve obsidian and bedrock while still destroying ordinary control blocks. |
 | 2026-07-23 | Live client testing found and fixed an invalid 26.2 spawn-egg model reference, a fixed-wait race in the rainbow checkpoint, and a custom entity-event collision with Minecraft's reserved Sniffer event ID. |
 | 2026-07-23 | Passed the final `1.1.0` build, all 7 registered dedicated-server tests, and the visible integrated-client test; inspected all four refreshed screenshots at original resolution. |
+| 2026-07-25 | Published the current feature set as stable version `1.0.3` from the `beta` branch. |
 
 For the device-level audit trail, including intentions and failed test
 iterations, see [DEVICE_ACTIONS.md](DEVICE_ACTIONS.md).
