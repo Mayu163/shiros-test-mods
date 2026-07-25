@@ -14,11 +14,17 @@ Create and validate a Minecraft 26.2 Fabric mod with:
   flies, dives, and explodes as a bomb.
 - A naturally spawning **CMD Creeper** that carries no more than two Fly
   Creepers, spawns with two, and throws them toward a village or Villager in
-  gravity-driven curves with an approximately 30%-higher apex that reach the
-  target area.
+  gravity-driven curves that start approximately 10% slower horizontally and
+  from an approximately 65%-higher release origin.
+- A **Summon Creeper** with a golden helmet and spawn egg that produces a
+  visual lightning strike when created, summons one Fly Creeper every 10
+  seconds, and summons one fully loaded CMD Creeper every 30 seconds.
 - A spawn egg for each custom type.
 - The same natural-spawn requirements, biome coverage, weight, and group size
-  as the vanilla Creeper.
+  as the vanilla Creeper for Fly and CMD Creepers.
+- Vanilla chainmail/golden helmet visuals, an at-least-three-second
+  seven-color Fly firework trace, and explosion verification proving that
+  obsidian and bedrock survive vanilla and custom Creepers.
 - Vanilla textures/assets wherever possible.
 - A real Minecraft server behavior suite and a visible client render test.
 - Complete feature and implementation-timeline documentation in `README.md`.
@@ -241,12 +247,12 @@ exit in the final run.
 
 - Build/test configuration: `build.gradle`, `gradle.properties`,
   `settings.gradle`, `test-env.bat`, `.gitignore`
-- Metadata/resources: `fabric.mod.json`, English localization, two item
+- Metadata/resources: `fabric.mod.json`, English localization, three item
   definitions
-- Common implementation: initializer, entity registration, Fly/CMD classes,
-  village targeting, spawn eggs
+- Common implementation: initializer, entity registration, Fly/CMD/Summon
+  classes, village targeting, spawn eggs
 - Client implementation: client initializer, Creeper variant renderer,
-  Elytra render layer
+  Elytra render layer, and vanilla helmet rendering
 - Tests: dedicated server GameTests and visible client GameTest
 - Documentation: `README.md`, `DEVICE_ACTIONS.md`
 
@@ -259,3 +265,69 @@ As of 2026-07-23, the requested mod behavior is implemented and the repository
 is good to go for Minecraft 26.2 development/testing. The final binary should
 be rebuilt from source before distribution if any subsequent code or
 dependency version changes are made.
+
+## 2026-07-23 13:10–13:26 current-worktree verification addendum
+
+This addendum records the verification performed against the exact working
+tree currently on this device. At the start of this pass, the repository
+already contained the completed Fly/CMD implementation documented above plus
+the requested, uncommitted version `1.1.0` expansion work. Existing dirty files
+were preserved; no reset, checkout, cleanup, or unrelated source replacement
+was performed.
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 13:10 | Audited the current source tree, Git status, entity registrations, AI, renderers, resources, GameTests, and this journal; compared exact APIs with the locally mapped Minecraft 26.2/Fabric sources. | Verify the requested work without overwriting the existing uncommitted `1.1.0` expansion. | Confirmed Fly/CMD entity types, both requested eggs, exact per-biome vanilla Creeper spawn-entry copying, vanilla spawn placement/rule registration, Elytra equipment/rendering, Villager/village targeting, CMD two-passenger capacity, natural-spawn payload creation, and vanilla-asset use. |
+| 13:10 | Ran `.\test-env.bat build --console=plain`. | Compile and package the exact current tree before runtime testing. | **PASS — `BUILD SUCCESSFUL`.** |
+| 13:10–13:11 | Ran the dedicated Minecraft GameTest server. | Exercise registration, spawn parity, natural CMD payloads, throws, ballistic target arrival, Fly dive/explosion, and village POI fallback under real game ticks. | **PASS — all 7 registered required tests passed; the behavior phase completed in 11.88 seconds.** |
+| 13:13–13:14 | Opened a fresh visible ClientGameTest using version `1.1.0`. | Replace stale `1.0.2` screenshots with evidence from the current sources. | The requested Fly/CMD/Summon scene rendered and screenshot `0000` was captured, but the extended test sampled the rainbow effect after only one color pulse while requiring two. Resource reload also reported that the new Summon egg used a nonexistent 26.2 special model. This run was rejected. |
+| 13:16–13:18 | Inspected all 88 vanilla 26.2 spawn-egg client definitions and the exact CMD launch/firework tick schedule; changed the client assertion from a fixed wait to a bounded readiness poll and changed the invalid extra egg resource to the same verified vanilla Creeper egg model used by Fly/CMD. | Remove timing flakiness and eliminate a real resource error without creating a texture or changing which entity an egg spawns. | Project rebuilt successfully; both requested eggs remained unchanged and valid. |
+| 13:19–13:20 | Reopened the visible ClientGameTest. | Verify the timing/resource corrections through the rendered client. | The timing correction reached the takeoff screenshot, then exposed a genuine packet collision: custom event ID `63` is intercepted globally by Minecraft and casts its entity to `Sniffer`. The Fly Creeper was disconnected before its own handler could run. This run was rejected. |
+| 13:20–13:22 | Inspected mapped `ClientPacketListener`, `ClientboundEntityEventPacket`, `Entity`, and `LivingEntity` sources; changed the seven transient color-pulse IDs to the unused signed-negative range `-128..-122`. | Keep the effect entity-local and avoid Minecraft's global Guardian (`21`), Totem (`35`), and Sniffer (`63`) event handling. | Packet bytes remain signed, every custom event now reaches `FlyCreeper.handleEntityEvent`, and no mixin or custom network channel was required. |
+| 13:22 | Ran the full Gradle build after the packet fix. | Compile/package the corrected common and client code. | **PASS — `BUILD SUCCESSFUL`.** |
+| 14:02–14:03 | Reran the dedicated Minecraft GameTest server after the common-code event change. | Prove that the exact final source did not regress server behavior. | **PASS — all 7 registered required tests passed; the behavior phase completed in 11.38 seconds.** |
+| 14:03–14:04 | Opened the final visible ClientGameTest and let its complete scripted sequence run. | Validate current resource reload, entity synchronization, vanilla-asset rendering, helmets, carried payloads, rainbow takeoff, slower/higher ballistic arc, target arrival, and explosion. | **PASS — `BUILD SUCCESSFUL` in 1 minute 28 seconds.** All four fresh screenshots were created; no unknown-model or entity-event/cast failure remained. |
+| 14:04 | Inspected all four fresh screenshots at original 1280×720 resolution. | Perform visual QA instead of relying only on process exit. | **PASS.** The static scene shows the chainmail CMD helmet, golden Summon helmet, Elytra Fly, and two carried payloads; the arc shows red/orange/yellow/green/cyan/blue particles; the final frame shows the target-area explosion and naturally fading trail. |
+| 14:05 | Updated `README.md` and this journal for version `1.1.0`. | Keep the durable feature inventory, implementation timeline, failures, fixes, and accepted evidence synchronized with the final source. | Documentation now covers all newly requested behavior and distinguishes historical `1.0.2` results from the then-current `1.1.0` prerelease acceptance. |
+| 14:06 | Ran the final Gradle build and audited the diff, artifact metadata, server XML, and latest client log. | Package and inspect the exact documented handoff state. | **PASS — `BUILD SUCCESSFUL`; `git diff --check` is clean.** The embedded mod version is `1.1.0`; the XML contains 7 testcase nodes and no failures/errors; the latest client log contains no unknown-model, class-cast, protocol-disconnect, or failed-client-test marker. Artifacts are `shiros-test-mod-1.1.0.jar` (68,265 bytes) and `shiros-test-mod-1.1.0-sources.jar` (29,515 bytes). |
+
+### Current accepted evidence
+
+- Full build: **PASS**
+- Dedicated server: **PASS — 7/7 registered tests**
+- Visible integrated client: **PASS**
+- Current binary:
+  `build/libs/shiros-test-mod-1.0.3.jar`
+- Current sources:
+  `build/libs/shiros-test-mod-1.0.3-sources.jar`
+- Machine-readable server report:
+  `build/gametest-results.xml`
+- Current visible evidence:
+  `build/client-gametest/screenshots/0000_shiros-test-mod-entity-scene.png`
+  through
+  `build/client-gametest/screenshots/0003_shiros-test-mod-ballistic-impact.png`
+
+Expected non-blocking development-client messages remain:
+
+- offline development credentials cannot authenticate to Mojang/Realms;
+- the generated test-client options contain anisotropic-filtering value `0`;
+- Loom lists an absent `build/resources/client` directory because that source
+  set intentionally has no client resources.
+
+None caused a gameplay assertion failure, renderer/resource failure, network
+disconnect, or nonzero exit in the accepted final run.
+
+The exact current `1.0.3` working tree is good to go for Minecraft 26.2 local
+development and testing. It contains the gameplay feature set originally
+validated and published as the `1.1.0` prerelease, now consistently versioned
+and published as stable `1.0.3`.
+
+## 2026-07-23 14:37–14:41 beta publication addendum
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 14:37 | Audited the working tree, remote branch/tag state, GitHub authentication, and the two `1.1.0` artifacts before publishing. | Avoid overwriting an existing branch/tag/release and bind the publication to the already tested files. | Confirmed `beta` and `v1.1.0` did not exist remotely, GitHub authentication was active for `Mayu163`, and only the stable `v1.0.2` Release existed. |
+| 14:38 | Created local branch `beta`, staged the complete verified `1.1.0` source/resource/test/documentation state, and committed it as `cfa2ca5` (`Add Summon Creeper beta features`). | Keep `main` unchanged and publish the requested beta state as a coherent commit. | Commit contains 21 changed files; generated JARs remained excluded from Git history. |
+| 14:39 | Pushed `beta` to `origin` and configured local upstream tracking. | Publish the current state to the requested GitHub branch. | **PASS — remote `beta` was created at `cfa2ca5e44a6e9c4b50e0e547f0fac04c61696ce`; `main` was not modified.** |
+| 14:40 | Created GitHub prerelease `v1.1.0`, targeted it at `beta`, and uploaded exactly the binary and source JARs. | Distribute the tested patch-number `1.1.0` build without marking it as the stable/latest release. | **PASS — prerelease is published and not a draft:** `https://github.com/Mayu163/shiros-test-mods/releases/tag/v1.1.0`. |
+| 14:40 | Queried the remote refs and GitHub Release asset metadata after publication. | Verify tag placement, prerelease flags, upload completion, sizes, and checksums independently of the create command. | `beta` and `v1.1.0` both resolved to `cfa2ca5e44a6e9c4b50e0e547f0fac04c61696ce`; both assets reported `uploaded`. Binary: 68,265 bytes, SHA-256 `d9e450116a81e2f6ea06b31cec09accd9641a3d99e1821a66240100dd28e8af5`. Sources: 29,515 bytes, SHA-256 `4c7d0160ad847054024e4849c06ec9f2f51d7207907abf49283af0525a92454c`. |

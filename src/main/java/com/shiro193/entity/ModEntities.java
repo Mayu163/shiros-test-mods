@@ -32,6 +32,10 @@ public final class ModEntities {
 		Registries.ENTITY_TYPE,
 		ShiroSTestMod.id("cmd_creeper")
 	);
+	public static final ResourceKey<EntityType<?>> SUMMON_CREEPER_KEY = ResourceKey.create(
+		Registries.ENTITY_TYPE,
+		ShiroSTestMod.id("summon_creeper")
+	);
 
 	public static final EntityType<FlyCreeper> FLY_CREEPER = register(
 		FLY_CREEPER_KEY,
@@ -66,6 +70,24 @@ public final class ModEntities {
 			)
 			.sized(0.6F, 1.7F)
 			.passengerAttachments(new Vec3(-0.38, 1.58, 0.0), new Vec3(0.38, 1.58, 0.0))
+			.clientTrackingRange(8)
+			.notInPeaceful()
+	);
+
+	public static final EntityType<SummonCreeper> SUMMON_CREEPER = register(
+		SUMMON_CREEPER_KEY,
+		FabricEntityType.Builder.createMob(
+				SummonCreeper::new,
+				MobCategory.MONSTER,
+				builder -> builder
+					.defaultAttributes(SummonCreeper::createAttributes)
+					.spawnPlacement(
+						SpawnPlacementTypes.ON_GROUND,
+						Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+						Monster::checkMonsterSpawnRules
+					)
+			)
+			.sized(0.6F, 1.7F)
 			.clientTrackingRange(8)
 			.notInPeaceful()
 	);

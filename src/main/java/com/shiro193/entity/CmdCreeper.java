@@ -19,6 +19,9 @@ import net.minecraft.world.entity.animal.feline.Cat;
 import net.minecraft.world.entity.animal.feline.Ocelot;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.phys.Vec3;
@@ -27,7 +30,9 @@ import org.jspecify.annotations.Nullable;
 public class CmdCreeper extends Creeper {
 	public static final int MAX_PAYLOAD = 2;
 	public static final int TARGET_RANGE = 128;
-	private static final double THROW_RANGE = 40.0;
+	public static final double THROW_RANGE = 40.0;
+	public static final double HORIZONTAL_LAUNCH_SPEED_MULTIPLIER = 0.90;
+	public static final double LAUNCH_ORIGIN_HEIGHT_MULTIPLIER = 1.65;
 	private static final double BASE_UPWARD_LAUNCH_SPEED = 1.25;
 	private static final double MAX_UPWARD_LAUNCH_BONUS = 0.30;
 	private static final double TRAJECTORY_VERTICAL_SPEED_MULTIPLIER = 1.161;
@@ -39,9 +44,12 @@ public class CmdCreeper extends Creeper {
 	private int throwGoalTicks;
 	private int lastPredictedHitTicks;
 	private double lastTargetDistanceSqr = Double.NaN;
+	private int approachRequests;
+	private int inRangeHoldTicks;
 
 	public CmdCreeper(EntityType<? extends CmdCreeper> type, Level level) {
 		super(type, level);
+		this.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.CHAINMAIL_HELMET));
 	}
 
 	public static AttributeSupplier.Builder createAttributes() {
@@ -118,6 +126,14 @@ public class CmdCreeper extends Creeper {
 		return this.lastTargetDistanceSqr;
 	}
 
+	public int getApproachRequests() {
+		return this.approachRequests;
+	}
+
+	public int getInRangeHoldTicks() {
+		return this.inRangeHoldTicks;
+	}
+
 	public boolean hasVillageTarget() {
 		return this.villageTarget != null;
 	}
@@ -134,18 +150,33 @@ public class CmdCreeper extends Creeper {
 		}
 
 		payload.stopRiding();
-		Vec3 launchOrigin = this.position().add(0.0, this.getBbHeight() + 0.35, 0.0);
+		double legacyLaunchHeightOffset = this.getBbHeight() + 0.35;
+		double launchHeightOffset = legacyLaunchHeightOffset * LAUNCH_ORIGIN_HEIGHT_MULTIPLIER;
+		Vec3 legacyLaunchOrigin = this.position().add(0.0, legacyLaunchHeightOffset, 0.0);
+		Vec3 launchOrigin = this.position().add(0.0, launchHeightOffset, 0.0);
 		payload.snapTo(launchOrigin.x, launchOrigin.y, launchOrigin.z, this.getYRot(), -10.0F);
 
 		Vec3 horizontalOffset = new Vec3(target.x - launchOrigin.x, 0.0, target.z - launchOrigin.z);
 		double horizontalDistance = horizontalOffset.length();
-		double referenceUpwardVelocity = BASE_UPWARD_LAUNCH_SPEED
-			+ Math.min(MAX_UPWARD_LAUNCH_BONUS, horizontalDistance * 0.008);
-		double upwardVelocity = referenceUpwardVelocity * TRAJECTORY_VERTICAL_SPEED_MULTIPLIER;
-		double referenceApexHeight = estimateBallisticApexHeight(referenceUpwardVelocity);
+		double upwardVelocityV102 = (
+			BASE_UPWARD_LAUNCH_SPEED
+				+ Math.min(MAX_UPWARD_LAUNCH_BONUS, horizontalDistance * 0.008)
+		) * TRAJECTORY_VERTICAL_SPEED_MULTIPLIER;
+		int legacyFlightTicks = estimateBallisticFlightTicks(
+			upwardVelocityV102,
+			target.y - legacyLaunchOrigin.y
+		);
+		int flightTicks = Math.max(
+			legacyFlightTicks + 1,
+			(int)Math.ceil(legacyFlightTicks / HORIZONTAL_LAUNCH_SPEED_MULTIPLIER)
+		);
+		double upwardVelocity = solveInitialVerticalSpeed(flightTicks, target.y - launchOrigin.y);
+		double referenceApexHeight = estimateBallisticApexHeight(upwardVelocityV102);
 		double raisedApexHeight = estimateBallisticApexHeight(upwardVelocity);
-		int flightTicks = estimateBallisticFlightTicks(upwardVelocity, target.y - launchOrigin.y);
 		this.lastPredictedHitTicks = flightTicks;
+		double referenceHorizontalSpeed = horizontalDistance < 1.0E-6
+			? 0.0
+			: horizontalDistance / legacyFlightTicks;
 		Vec3 horizontalVelocity = horizontalDistance < 1.0E-6
 			? Vec3.ZERO
 			: horizontalOffset.scale(1.0 / flightTicks);
@@ -154,7 +185,10 @@ public class CmdCreeper extends Creeper {
 			horizontalVelocity.add(0.0, upwardVelocity, 0.0),
 			flightTicks,
 			referenceApexHeight,
-			raisedApexHeight
+			raisedApexHeight,
+			referenceHorizontalSpeed,
+			legacyLaunchHeightOffset,
+			launchHeightOffset
 		);
 		this.totalThrown++;
 		return true;
@@ -164,7 +198,7 @@ public class CmdCreeper extends Creeper {
 		double relativeY = 0.0;
 		double maximumY = 0.0;
 		double verticalSpeed = initialVerticalSpeed;
-		for (int tick = 1; tick <= 80; tick++) {
+		for (int tick = 1; tick <= 120; tick++) {
 			relativeY += verticalSpeed;
 			maximumY = Math.max(maximumY, relativeY);
 			verticalSpeed = (verticalSpeed - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
@@ -180,7 +214,7 @@ public class CmdCreeper extends Creeper {
 		double relativeY = 0.0;
 		double verticalSpeed = initialVerticalSpeed;
 		boolean passedApex = false;
-		for (int tick = 1; tick <= 80; tick++) {
+		for (int tick = 1; tick <= 120; tick++) {
 			relativeY += verticalSpeed;
 			verticalSpeed = (verticalSpeed - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
 			if (verticalSpeed <= 0.0) {
@@ -191,7 +225,33 @@ public class CmdCreeper extends Creeper {
 			}
 		}
 
-		return 40;
+		return 60;
+	}
+
+	private static double solveInitialVerticalSpeed(int flightTicks, double targetHeightOffset) {
+		double low = 0.0;
+		double high = 4.0;
+		for (int iteration = 0; iteration < 48; iteration++) {
+			double candidate = (low + high) * 0.5;
+			if (estimateBallisticHeightAfterTicks(candidate, flightTicks) < targetHeightOffset) {
+				low = candidate;
+			} else {
+				high = candidate;
+			}
+		}
+
+		return (low + high) * 0.5;
+	}
+
+	private static double estimateBallisticHeightAfterTicks(double initialVerticalSpeed, int ticks) {
+		double relativeY = 0.0;
+		double verticalSpeed = initialVerticalSpeed;
+		for (int tick = 0; tick < ticks; tick++) {
+			relativeY += verticalSpeed;
+			verticalSpeed = (verticalSpeed - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
+		}
+
+		return relativeY;
 	}
 
 	private boolean acquireTarget() {
@@ -257,11 +317,15 @@ public class CmdCreeper extends Creeper {
 			double horizontalDistanceSqr = deltaX * deltaX + deltaZ * deltaZ;
 			CmdCreeper.this.lastTargetDistanceSqr = horizontalDistanceSqr;
 			if (horizontalDistanceSqr > THROW_RANGE * THROW_RANGE) {
+				CmdCreeper.this.approachRequests++;
 				CmdCreeper.this.getNavigation().moveTo(targetPosition.x, targetPosition.y, targetPosition.z, 1.0);
 				return;
 			}
 
 			CmdCreeper.this.getNavigation().stop();
+			CmdCreeper.this.inRangeHoldTicks++;
+			Vec3 movement = CmdCreeper.this.getDeltaMovement();
+			CmdCreeper.this.setDeltaMovement(0.0, movement.y, 0.0);
 			if (--this.throwCooldown <= 0 && CmdCreeper.this.throwOneAt(targetPosition)) {
 				this.throwCooldown = 24;
 			}

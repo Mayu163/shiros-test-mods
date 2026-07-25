@@ -1,6 +1,8 @@
 {
 	"entity.shiros-test-mod.fly_creeper": "Fly Creeper",
 	"entity.shiros-test-mod.cmd_creeper": "CMD Creeper",
+	"entity.shiros-test-mod.summon_creeper": "Summon Creeper",
 	"item.shiros-test-mod.fly_creeper_spawn_egg": "Fly Creeper Spawn Egg",
-	"item.shiros-test-mod.cmd_creeper_spawn_egg": "CMD Creeper Spawn Egg"
+	"item.shiros-test-mod.cmd_creeper_spawn_egg": "CMD Creeper Spawn Egg",
+	"item.shiros-test-mod.summon_creeper_spawn_egg": "Summon Creeper Spawn Egg"
 }

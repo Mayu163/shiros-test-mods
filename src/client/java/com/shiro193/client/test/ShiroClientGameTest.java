@@ -4,6 +4,7 @@ import com.shiro193.ShiroSTestMod;
 import com.shiro193.entity.CmdCreeper;
 import com.shiro193.entity.FlyCreeper;
 import com.shiro193.entity.ModEntities;
+import com.shiro193.entity.SummonCreeper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -16,8 +17,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
@@ -78,6 +81,20 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 					}
 				});
 
+				SummonCreeper summon = ModEntities.SUMMON_CREEPER.spawn(
+					level,
+					center.offset(0, 0, 3),
+					EntitySpawnReason.SPAWN_ITEM_USE
+				);
+				if (summon == null) {
+					throw new AssertionError("Visible test could not spawn Summon Creeper.");
+				}
+				summon.setNoAi(true);
+				summon.setInvulnerable(true);
+				summon.setPersistenceRequired();
+				summon.setCustomName(Component.literal("Summon Creeper"));
+				summon.setCustomNameVisible(true);
+
 				Villager villager = EntityTypes.VILLAGER.spawn(
 					level,
 					center.offset(0, 0, 7),
@@ -106,15 +123,29 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 				return new int[] {
 					level.getEntitiesOfClass(FlyCreeper.class, scene, entity -> true).size(),
 					level.getEntitiesOfClass(CmdCreeper.class, scene, entity -> true).size(),
+					level.getEntitiesOfClass(SummonCreeper.class, scene, entity -> true).size(),
 					level.getEntitiesOfClass(Villager.class, scene, entity -> true).size()
 				};
 			});
-			if (serverCounts[0] != 3 || serverCounts[1] != 1 || serverCounts[2] < 1) {
+			if (serverCounts[0] != 3 || serverCounts[1] != 1 || serverCounts[2] != 1 || serverCounts[3] < 1) {
 				throw new AssertionError(
-					"Visible scene server mismatch: expected 3 Fly Creepers, 1 CMD Creeper, and a Villager; got "
-						+ serverCounts[0] + ", " + serverCounts[1] + ", " + serverCounts[2] + "."
+					"Visible scene server mismatch: expected 3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, and a Villager; got "
+						+ serverCounts[0] + ", " + serverCounts[1] + ", " + serverCounts[2] + ", " + serverCounts[3] + "."
 				);
 			}
+			world.getServer().computeOnServer(server -> {
+				ServerLevel level = server.getPlayerList().getPlayers().getFirst().level();
+				AABB scene = new AABB(sceneCenter).inflate(20.0);
+				CmdCreeper cmd = level.getEntitiesOfClass(CmdCreeper.class, scene, entity -> true).getFirst();
+				SummonCreeper summon = level.getEntitiesOfClass(SummonCreeper.class, scene, entity -> true).getFirst();
+				if (!cmd.getItemBySlot(EquipmentSlot.HEAD).is(Items.CHAINMAIL_HELMET)) {
+					throw new AssertionError("Visible CMD Creeper lacks its chainmail helmet.");
+				}
+				if (!summon.getItemBySlot(EquipmentSlot.HEAD).is(Items.GOLDEN_HELMET)) {
+					throw new AssertionError("Visible Summon Creeper lacks its golden helmet.");
+				}
+				return null;
+			});
 
 			context.runOnClient(minecraft -> {
 				if (minecraft.level == null) {
@@ -124,12 +155,14 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 				AABB scene = new AABB(sceneCenter).inflate(20.0);
 				int flyCount = minecraft.level.getEntitiesOfClass(FlyCreeper.class, scene, entity -> true).size();
 				int cmdCount = minecraft.level.getEntitiesOfClass(CmdCreeper.class, scene, entity -> true).size();
+				int summonCount = minecraft.level.getEntitiesOfClass(SummonCreeper.class, scene, entity -> true).size();
 				int villagerCount = minecraft.level.getEntitiesOfClass(Villager.class, scene, entity -> true).size();
-				if (flyCount != 3 || cmdCount != 1 || villagerCount < 1) {
+				if (flyCount != 3 || cmdCount != 1 || summonCount != 1 || villagerCount < 1) {
 					throw new AssertionError(
-						"Visible scene mismatch: expected 3 Fly Creepers, 1 CMD Creeper, and a Villager; got "
-							+ flyCount + ", " + cmdCount + ", " + villagerCount
-							+ " (server had " + serverCounts[0] + ", " + serverCounts[1] + ", " + serverCounts[2] + ")."
+						"Visible scene mismatch: expected 3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, and a Villager; got "
+							+ flyCount + ", " + cmdCount + ", " + summonCount + ", " + villagerCount
+							+ " (server had " + serverCounts[0] + ", " + serverCounts[1] + ", "
+							+ serverCounts[2] + ", " + serverCounts[3] + ")."
 					);
 				}
 			});
@@ -156,7 +189,28 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 				return null;
 			});
 
-			context.waitTicks(11);
+			Optional<BlockPos> readyFireworkPayload = Optional.empty();
+			for (int waitTick = 0; waitTick < 20 && readyFireworkPayload.isEmpty(); waitTick++) {
+				context.waitTicks(1);
+				readyFireworkPayload = world.getServer().computeOnServer(server -> {
+					ServerLevel level = server.getPlayerList().getPlayers().getFirst().level();
+					AABB scene = new AABB(sceneCenter).inflate(24.0);
+					return level.getEntitiesOfClass(
+							FlyCreeper.class,
+							scene,
+							fly -> fly.wasLaunched()
+								&& fly.isTakeoffFireworkActive()
+								&& fly.getTakeoffFireworkColorBurstsEmitted() >= 2
+								&& fly.getTakeoffFireworkDistinctColorCount() >= 2
+						)
+						.stream()
+						.map(FlyCreeper::blockPosition)
+						.findFirst();
+				});
+			}
+			readyFireworkPayload.orElseThrow(
+				() -> new AssertionError("No launched Fly Creeper began its rainbow takeoff sequence within 20 ticks.")
+			);
 			BlockPos fireworkPayload = world.getServer().computeOnServer(server -> {
 				ServerLevel level = server.getPlayerList().getPlayers().getFirst().level();
 				AABB scene = new AABB(sceneCenter).inflate(24.0);
@@ -173,6 +227,16 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 						"Visible payload did not emit exactly one takeoff firework effect (triggers="
 							+ payload.getTakeoffFireworkEffectsTriggered()
 							+ ", bursts=" + payload.getTakeoffFireworkBurstsEmitted() + ")."
+					);
+				}
+				if (FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS < 60
+					|| payload.getTakeoffFireworkColorBurstsEmitted() < 2
+					|| payload.getTakeoffFireworkDistinctColorCount() < 2) {
+					throw new AssertionError(
+						"Visible payload did not begin its 3+ second rainbow firework sequence (duration="
+							+ FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS
+							+ ", colorBursts=" + payload.getTakeoffFireworkColorBurstsEmitted()
+							+ ", colors=" + payload.getTakeoffFireworkDistinctColorCount() + ")."
 					);
 				}
 				if (payload.getTakeoffFireworkParticlesEmitted()
@@ -213,16 +277,19 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 					.stream()
 					.findFirst()
 					.orElseThrow(() -> new AssertionError("No Fly Creeper was visible on the descending ballistic arc."));
-				if (payload.getPredictedTrajectoryHeightMultiplier() < 1.28
-					|| payload.getPredictedTrajectoryHeightMultiplier() > 1.32
+				if (payload.getHorizontalLaunchSpeedMultiplier() < 0.86
+					|| payload.getHorizontalLaunchSpeedMultiplier() > 0.91
+					|| payload.getLaunchOriginHeightMultiplier() < 1.64
+					|| payload.getLaunchOriginHeightMultiplier() > 1.66
 					|| payload.getMaximumLaunchHeight() < payload.getPredictedTrajectoryApexHeight() - 0.75
 					|| !payload.hasDescendedUnderGravity()
 					|| payload.isNoGravity()) {
 					throw new AssertionError(
-						"Visible payload did not complete the 30%-higher gravity arc (height="
+						"Visible payload did not complete the slower, higher-release gravity arc (height="
 							+ payload.getMaximumLaunchHeight()
 							+ ", predicted=" + payload.getPredictedTrajectoryApexHeight()
-							+ ", multiplier=" + payload.getPredictedTrajectoryHeightMultiplier()
+							+ ", speedMultiplier=" + payload.getHorizontalLaunchSpeedMultiplier()
+							+ ", originMultiplier=" + payload.getLaunchOriginHeightMultiplier()
 							+ ", phase=" + payload.getFlightPhase() + ")."
 					);
 				}

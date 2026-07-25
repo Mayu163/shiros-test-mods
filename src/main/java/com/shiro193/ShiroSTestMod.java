@@ -15,7 +15,9 @@ public class ShiroSTestMod implements ModInitializer {
 	public void onInitialize() {
 		ModEntities.initialize();
 		ModItems.initialize();
-		LOGGER.info("Registered Fly Creeper, CMD Creeper, their spawn eggs, and vanilla-creeper spawn parity.");
+		LOGGER.info(
+			"Registered Fly Creeper, CMD Creeper, Summon Creeper, their spawn eggs, and vanilla-creeper spawn parity."
+		);
 	}
 
 	public static Identifier id(String path) {

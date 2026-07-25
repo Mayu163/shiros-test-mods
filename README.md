@@ -1,8 +1,8 @@
 # Shiro's Test Mod
 
-A Fabric mod for Minecraft 26.2 that adds two village-attacking Creeper
-variants: an Elytra-equipped flying bomb and a carrier that deploys two of
-those bombs.
+A Fabric mod for Minecraft 26.2 that adds three Creeper variants: an
+Elytra-equipped flying bomb, a carrier that deploys two of those bombs, and a
+gold-helmeted summoner that calls in timed reinforcements.
 
 ## Status and compatibility
 
@@ -11,7 +11,7 @@ those bombs.
 | Mod name | Shiro's Test Mod |
 | Mod ID | `shiros-test-mod` |
 | Java package | `com.shiro193` |
-| Mod version | `1.0.2` |
+| Mod version | `1.0.3` |
 | Minecraft | `26.2` |
 | Fabric Loader | `0.19.3` or newer |
 | Fabric API | `0.155.2+26.2` |
@@ -29,7 +29,7 @@ enabled and every other advanced option disabled.
 The mod builds on two vanilla entity types:
 
 - **Creeper** (`minecraft:creeper`) is the behavioral, attribute, fuse,
-  explosion, model, and texture base for both new hostile mobs.
+  explosion, model, and texture base for all three new hostile mobs.
 - **Villager** (`minecraft:villager`) is the preferred live target. If no
   Villager is found, a village point of interest is used as the fallback
   destination.
@@ -47,10 +47,14 @@ Features:
   fuse behavior, swelling animation, and explosion mechanics.
 - Is equipped in its chest slot with a real vanilla Elytra item.
 - Every takeoff emits a firework boost effect attached to the moving Creeper:
-  32 ticks of vanilla `FIREWORK` spark particles and one vanilla
-  firework-rocket launch sound.
-- Two tight movement-relative emitters request 16 sparks per tick, producing
-  a dense continuous trail of at least 512 sparks for a complete CMD launch.
+  an 80-tick (four-second) sequence built entirely from vanilla firework
+  particles plus one vanilla firework-rocket launch sound.
+- Two tight movement-relative emitters produce a continuous white spark core.
+  A colored burst is added every five ticks, cycling through red, orange,
+  yellow, green, cyan, blue, and purple with vanilla trail/fade behavior.
+- The configured emitter duration exceeds the requested three seconds.
+  Existing colored particles retain their vanilla lifetime and fade naturally
+  after the moving emitter stops or the payload detonates.
 - The boost occurs for both autonomous flight and CMD-launched payloads, and
   is triggered once for each actual takeoff.
 - Searches within 128 blocks for the nearest living Villager.
@@ -64,9 +68,9 @@ Features:
 - A CMD-launched Fly Creeper instead follows a gravity-driven ballistic arc:
   it starts with a strong upward velocity, climbs to a high apex, then falls
   naturally toward its assigned target.
-- Its predicted apex is approximately 30% higher than the previous/reference
-  ballistic trajectory; automated bounds require a `1.28`-`1.32` height
-  multiplier.
+- Its launch prediction incorporates the slower horizontal release and
+  65%-higher origin, then verifies that the payload reaches the resulting
+  raised apex.
 - During the ballistic descent, only horizontal guidance is corrected; the
   vertical movement remains Minecraft's normal gravity and drag.
 - Receives a CMD-predicted impact time at launch. Its inherited 30-tick
@@ -87,6 +91,7 @@ IDs:
 Features:
 
 - Extends the vanilla Creeper and renders as a normal Creeper.
+- Wears a real vanilla chainmail helmet.
 - Can carry only Fly Creepers and enforces a hard maximum of two passengers.
 - Every newly finalized CMD spawn, including natural and spawn-egg spawns,
   creates exactly two Fly Creeper payloads. Loading an existing entity,
@@ -95,11 +100,14 @@ Features:
   carrier's movement or look controls.
 - Searches within 128 blocks for the nearest living Villager, with the same
   village point-of-interest fallback as the Fly Creeper.
-- Walks toward a target while it is farther than 40 horizontal blocks away.
+- Walks toward a target only while it is farther than 40 horizontal blocks
+  away. Once the target is in range it stops navigation and holds position;
+  it does not move closer before throwing.
 - Throws one payload at a time once within range.
-- Takes the previous `1.25`-`1.55` upward-velocity range and applies a
-  calibrated `1.161` multiplier, producing approximately `1.45`-`1.80`
-  upward velocity and a roughly 30% higher apex.
+- Uses approximately 90% of the reference horizontal launch speed, making
+  the initial horizontal throw about 10% slower.
+- Releases each payload from `1.65` times the previous origin offset, which
+  raises its initial launch position by approximately 65%.
 - Calculates horizontal velocity from a discrete estimate of Minecraft's
   gravity/drag flight time to the target.
 - Uses that same flight simulation to predict the payload's hit tick.
@@ -126,15 +134,45 @@ Features:
    ignition tick, preserves its natural vertical fall, and applies bounded
    horizontal guidance during descent.
 5. It reaches and detonates in the destination area. The automated test
-   requires a predicted apex multiplier between `1.28` and `1.32`, an actual
-   apex within `0.75` blocks of the raised prediction, a closest target
-   distance of no more than two blocks, target contact within three ticks of
-   prediction, and detonation within two ticks of prediction.
+   requires a horizontal-speed multiplier of `0.86`-`0.91`, a launch-origin
+   multiplier of `1.64`-`1.66`, an actual apex within `0.75` blocks of the
+   raised prediction, a closest target distance of no more than two blocks,
+   target contact within three ticks of prediction, and detonation within two
+   ticks of prediction.
+
+## Summon Creeper
+
+IDs:
+
+- Entity: `shiros-test-mod:summon_creeper`
+- Spawn egg: `shiros-test-mod:summon_creeper_spawn_egg`
+
+Features:
+
+- Extends the vanilla Creeper and wears a real vanilla golden helmet.
+- A newly finalized spawn creates one visual-only vanilla lightning bolt at
+  its position. The lightning supplies the original effect and sound without
+  damaging the Summon Creeper or its surroundings.
+- Maintains a server-side timer that is saved and restored with the entity.
+- Summons one Fly Creeper every 200 ticks (10 seconds).
+- Summons one CMD Creeper every 600 ticks (30 seconds). The 30-second mark
+  therefore produces the third scheduled Fly Creeper and one CMD Creeper.
+- A summoned CMD Creeper goes through normal spawn finalization and arrives
+  carrying exactly two Fly Creeper payloads.
+- Uses the vanilla Creeper model and texture; no custom texture is included.
+
+## Explosion-resistant blocks
+
+The vanilla Creeper and all three custom Creepers preserve obsidian and
+bedrock when they explode. The automated arena ignites one of each type,
+checks every obsidian/bedrock witness block, and also requires at least one
+nearby dirt control block to be destroyed so the test proves that explosion
+block damage actually occurred.
 
 ## Natural spawning
 
-Both custom types deliberately mirror vanilla Creeper spawning rather than
-using a single hard-coded approximation:
+Fly Creepers and CMD Creepers deliberately mirror vanilla Creeper spawning
+rather than using a single hard-coded approximation:
 
 - Category: `MONSTER`
 - Peaceful difficulty: disallowed
@@ -157,11 +195,11 @@ its own two payloads.
 
 ## Spawn eggs and creative inventory
 
-- Both eggs appear in the Spawn Eggs creative tab immediately after the
+- All three eggs appear in the Spawn Eggs creative tab immediately after the
   vanilla Creeper Spawn Egg.
 - Each egg is registered against its correct custom entity type and has its
   own English display name.
-- Both item definitions intentionally reuse
+- All three item definitions intentionally reuse
   `minecraft:item/creeper_spawn_egg`; no custom item texture is included.
 - A CMD Creeper created with its spawn egg receives two payloads.
 
@@ -170,6 +208,7 @@ Useful manual-test commands:
 ```mcfunction
 /give @s shiros-test-mod:fly_creeper_spawn_egg
 /give @s shiros-test-mod:cmd_creeper_spawn_egg
+/give @s shiros-test-mod:summon_creeper_spawn_egg
 /give @s minecraft:villager_spawn_egg
 ```
 
@@ -181,17 +220,19 @@ the same spawn-finalization path as natural or spawn-egg creation.
 
 No new texture files were created.
 
-- Both mobs use the exact vanilla Creeper model and
+- All three mobs use the exact vanilla Creeper model and
   `minecraft:textures/entity/creeper/creeper.png`.
 - The renderer reproduces vanilla Creeper swelling, white fuse flashes, and
   the charged-Creeper power layer.
 - Fly Creepers use Minecraft's vanilla Elytra equipment asset, model, and
   texture in addition to carrying an actual Elytra item.
+- CMD Creepers render a vanilla chainmail helmet; Summon Creepers render a
+  vanilla golden helmet.
 - Takeoff effects use Minecraft's vanilla firework spark particle and
   firework-rocket launch sound; no effect texture or sound was added.
 - The CMD Creeper's two passenger attachment points place its payloads above
   the carrier.
-- Both spawn eggs use the vanilla Creeper egg model.
+- All three spawn eggs use the vanilla Creeper egg model.
 
 ## Source layout
 
@@ -204,6 +245,7 @@ src/main/java/com/shiro193/
 │   ├── CmdCreeper.java
 │   ├── FlyCreeper.java
 │   ├── ModEntities.java
+│   ├── SummonCreeper.java
 │   └── VillageTargeting.java
 ├── item/ModItems.java
 └── test/ShiroEntityGameTests.java
@@ -216,6 +258,10 @@ src/client/java/com/shiro193/client/
 ├── ShiroSTestModClient.java
 ├── render/
 │   ├── CreeperVariantRenderer.java
+│   ├── CreeperVariantModel.java
+│   ├── CreeperVariantPowerLayer.java
+│   ├── CreeperVariantRenderState.java
+│   ├── CreeperHelmetModel.java
 │   └── ElytraCreeperLayer.java
 └── test/ShiroClientGameTest.java
 ```
@@ -251,13 +297,13 @@ changing the machine-wide Java configuration.
 After a build, the distributable mod is:
 
 ```text
-build/libs/shiros-test-mod-1.0.2.jar
+build/libs/shiros-test-mod-1.0.3.jar
 ```
 
 The matching source archive is:
 
 ```text
-build/libs/shiros-test-mod-1.0.2-sources.jar
+build/libs/shiros-test-mod-1.0.3-sources.jar
 ```
 
 ## Real-environment acceptance design
@@ -266,27 +312,30 @@ The test plan uses Minecraft itself rather than mocks.
 
 | Target | Environment | Acceptance check |
 |---|---|---|
-| Registration and eggs | Dedicated GameTest server | Both types are monsters; both eggs resolve to the right type; placement and heightmap equal vanilla Creeper. |
-| Natural spawn parity | Dedicated GameTest server | For every biome with a vanilla Creeper, each custom entry has the same weight, minimum group, and maximum group. |
-| CMD capacity and loadout | Dedicated GameTest server | A created CMD has exactly two Elytra-equipped Fly passengers and rejects a third. |
-| Long firework takeoff trail | Dedicated and visible client GameTests | An autonomous Fly Creeper and both CMD payloads each trigger exactly one takeoff effect. Every CMD payload completes 32 emission ticks and requests at least 512 vanilla firework sparks; the real-client arc frame shows a dense continuous trail spanning most of the view. |
-| Higher predicted-fuse ballistic attack | Dedicated GameTest server | A nearby Villager is acquired and both payloads are thrown. Each predicts a `1.28`-`1.32`× apex, physically reaches within `0.75` blocks of it, receives the exact derived ignition schedule, reaches within 2 blocks and within 3 ticks of its hit prediction, then detonates within 2 ticks. |
+| Registration and eggs | Dedicated GameTest server | All three types are monsters; all three eggs resolve to the right type; Fly/CMD placement and heightmap equal vanilla Creeper. |
+| Natural spawn parity | Dedicated GameTest server | For every biome with a vanilla Creeper, the Fly and CMD entries have the same weight, minimum group, and maximum group. |
+| CMD capacity, helmet, and range hold | Dedicated GameTest server | A created CMD wears chainmail, has exactly two Elytra-equipped Fly passengers, rejects a third, and records zero approach requests while its target starts inside the 40-block throw range. |
+| Slower, higher CMD launch | Dedicated GameTest server | Both payloads use a `0.86`-`0.91` horizontal-speed multiplier and a `1.64`-`1.66` launch-origin multiplier, preserve gravity, cross the raised predicted apex, and arrive within two blocks of the target. |
+| Three-second rainbow firework trace | Dedicated and visible client GameTests | Autonomous and CMD takeoffs trigger the vanilla effect once. The configured duration is 80 ticks; both thrown payloads emit all seven color phases, and the real-client arc frame visibly shows the multicolor trail and natural fade. |
+| Prediction-timed ballistic attack | Dedicated GameTest server | A nearby Villager is acquired and both payloads are thrown. Each receives the derived ignition schedule, reaches within 2 blocks and within 3 ticks of its hit prediction, then detonates within 2 ticks. |
 | Fly attack | Dedicated GameTest server | A Fly Creeper acquires a Villager, becomes airborne, enters a dive, arms its fuse, and is removed by its completed explosion. |
+| Summon Creeper | Dedicated GameTest server | A gold-helmeted Summon Creeper triggers exactly one visual lightning bolt, produces three Fly Creepers at 10/20/30 seconds, and produces one fully loaded CMD Creeper at 30 seconds. |
+| Obsidian and bedrock | Dedicated GameTest server | Vanilla, Fly, CMD, and Summon Creeper explosions leave both protected block types intact while destroying at least one ordinary dirt control block. |
 | Village fallback | Dedicated GameTest server | With the maximum legal 128-block GameTest padding and no Villager inside the explicit 128-block query, both types acquire a real Bell village POI; the Fly destination equals the Bell position. |
-| Client synchronization | Visible integrated-server client | Server and client each see 3 Fly Creepers, 1 CMD Creeper, and at least 1 Villager in the staged scene. |
-| Rendering and live arc | Visible integrated-server client | Vanilla Creeper skins, Elytra wings, carrier payloads, names, and the Villager render without model/resource exceptions. Server-side assertions verify the predicted schedule, airborne descent, and prediction-tolerant target contact; screenshots capture the static scene, takeoff, arc, and timed explosion centered on the Villager. |
+| Client synchronization | Visible integrated-server client | Server and client each see 3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, and at least 1 Villager in the staged scene. |
+| Rendering and live arc | Visible integrated-server client | Vanilla Creeper skins, Elytra wings, chainmail/golden helmets, carrier payloads, names, and the Villager render without model/resource exceptions. Server-side assertions verify the rainbow phases, slower/higher launch, predicted schedule, airborne descent, and target contact; screenshots capture the static scene, takeoff, multicolor arc, and timed explosion. |
 
 Latest verified results on 2026-07-23:
 
 - `build`: **PASS**
-- Server GameTests: **PASS — 5/5 required tests**
+- Server GameTests: **PASS — 7/7 registered tests**
 - Visible client GameTest: **PASS**
-- Visible client counts: **3 Fly Creepers, 1 CMD Creeper, 1 Villager**
+- Visible client counts: **3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, 1 Villager**
 - Static scene:
   `build/client-gametest/screenshots/0000_shiros-test-mod-entity-scene.png`
 - Initial firework takeoff:
   `build/client-gametest/screenshots/0001_shiros-test-mod-firework-takeoff.png`
-- Higher ballistic arc and full long trace:
+- Slower/higher ballistic arc and full rainbow trace:
   `build/client-gametest/screenshots/0002_shiros-test-mod-ballistic-arc.png`
 - Prediction-timed detonation:
   `build/client-gametest/screenshots/0003_shiros-test-mod-ballistic-impact.png`
@@ -305,12 +354,18 @@ Use a disposable Hard-difficulty world because the mobs explode:
 2. Place a Fly Creeper with its egg and verify that takeoff produces firework
    sparks and a rocket-launch sound before it gains altitude, dives, flashes,
    and explodes near the Villager.
-3. Place a CMD Creeper with its egg and visually confirm two Fly passengers.
-4. Verify that each thrown payload produces its own firework boost, launches
-   upward quickly, leaves a long continuous spark trace, follows the visibly
-   higher curved path, begins flashing on its prediction-derived schedule,
-   and explodes as it reaches the target area.
-5. Set night and use an ordinary Creeper-valid dark area to observe natural
+3. Place a CMD Creeper with its egg and visually confirm its chainmail helmet
+   and two Fly passengers.
+4. Put its target inside 40 blocks and confirm it holds position while
+   throwing. Verify that each payload starts about 10% slower horizontally,
+   releases about 65% higher, leaves a three-second-plus rainbow trace, and
+   explodes as it reaches the target area.
+5. Place a Summon Creeper with its egg. Confirm its golden helmet and
+   visual-only lightning, then wait 30 seconds for three timed Fly Creepers
+   and one fully loaded CMD Creeper.
+6. Detonate ordinary and custom Creepers beside obsidian, bedrock, and a
+   disposable dirt control block; the protected blocks should survive.
+7. Set night and use an ordinary Creeper-valid dark area to observe natural
    spawning over time. Treat the spawn-table GameTest as the deterministic
    frequency proof; random observation alone is not statistically reliable.
 
@@ -345,6 +400,12 @@ All dates are local device dates.
 | 2026-07-23 | Extended the firework effect from 12 to 32 ticks and replaced the single six-spark emitter with two tight emitters totaling 16 sparks per tick. |
 | 2026-07-23 | Added raised-apex and full 32-tick/512-spark acceptance checks, passed all 5 server tests and the visible client test, visually accepted the long-trace/higher-arc frames, and released version `1.0.2`. |
 | 2026-07-23 | Audited the publication allowlist and ignore rules, pushed the clean project to the private `Mayu163/shiros-test-mods` GitHub repository on `main`, and published the binary/source JARs in the `v1.0.2` Release. |
+| 2026-07-23 | Began the `1.1.0` beta feature set, later promoted as stable `1.0.3`: added the gold-helmeted Summon Creeper and vanilla-model spawn egg, visual spawn lightning, persistent 10-second Fly and 30-second CMD reinforcement schedules, and a chainmail helmet for CMD Creepers. |
+| 2026-07-23 | Changed in-range CMD behavior to hold position, reduced payload horizontal launch speed by about 10%, raised the release origin by about 65%, and extended the Fly trace to an 80-tick seven-color vanilla-firework sequence. |
+| 2026-07-23 | Added an explosion arena proving vanilla, Fly, CMD, and Summon Creepers preserve obsidian and bedrock while still destroying ordinary control blocks. |
+| 2026-07-23 | Live client testing found and fixed an invalid 26.2 spawn-egg model reference, a fixed-wait race in the rainbow checkpoint, and a custom entity-event collision with Minecraft's reserved Sniffer event ID. |
+| 2026-07-23 | Passed the final `1.1.0` prerelease build, all 7 registered dedicated-server tests, and the visible integrated-client test; inspected all four refreshed screenshots at original resolution. |
+| 2026-07-25 | Published the current feature set as stable version `1.0.3` from the `beta` branch. |
 
 For the device-level audit trail, including intentions and failed test
 iterations, see [DEVICE_ACTIONS.md](DEVICE_ACTIONS.md).
