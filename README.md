@@ -400,11 +400,11 @@ All dates are local device dates.
 | 2026-07-23 | Extended the firework effect from 12 to 32 ticks and replaced the single six-spark emitter with two tight emitters totaling 16 sparks per tick. |
 | 2026-07-23 | Added raised-apex and full 32-tick/512-spark acceptance checks, passed all 5 server tests and the visible client test, visually accepted the long-trace/higher-arc frames, and released version `1.0.2`. |
 | 2026-07-23 | Audited the publication allowlist and ignore rules, pushed the clean project to the private `Mayu163/shiros-test-mods` GitHub repository on `main`, and published the binary/source JARs in the `v1.0.2` Release. |
-| 2026-07-23 | Began version `1.1.0`: added the gold-helmeted Summon Creeper and vanilla-model spawn egg, visual spawn lightning, persistent 10-second Fly and 30-second CMD reinforcement schedules, and a chainmail helmet for CMD Creepers. |
+| 2026-07-23 | Began the `1.1.0` beta feature set, later promoted as stable `1.0.3`: added the gold-helmeted Summon Creeper and vanilla-model spawn egg, visual spawn lightning, persistent 10-second Fly and 30-second CMD reinforcement schedules, and a chainmail helmet for CMD Creepers. |
 | 2026-07-23 | Changed in-range CMD behavior to hold position, reduced payload horizontal launch speed by about 10%, raised the release origin by about 65%, and extended the Fly trace to an 80-tick seven-color vanilla-firework sequence. |
 | 2026-07-23 | Added an explosion arena proving vanilla, Fly, CMD, and Summon Creepers preserve obsidian and bedrock while still destroying ordinary control blocks. |
 | 2026-07-23 | Live client testing found and fixed an invalid 26.2 spawn-egg model reference, a fixed-wait race in the rainbow checkpoint, and a custom entity-event collision with Minecraft's reserved Sniffer event ID. |
-| 2026-07-23 | Passed the final `1.1.0` build, all 7 registered dedicated-server tests, and the visible integrated-client test; inspected all four refreshed screenshots at original resolution. |
+| 2026-07-23 | Passed the final `1.1.0` prerelease build, all 7 registered dedicated-server tests, and the visible integrated-client test; inspected all four refreshed screenshots at original resolution. |
 | 2026-07-25 | Published the current feature set as stable version `1.0.3` from the `beta` branch. |
 
 For the device-level audit trail, including intentions and failed test

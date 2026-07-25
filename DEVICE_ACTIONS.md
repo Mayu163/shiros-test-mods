@@ -288,7 +288,7 @@ was performed.
 | 14:02–14:03 | Reran the dedicated Minecraft GameTest server after the common-code event change. | Prove that the exact final source did not regress server behavior. | **PASS — all 7 registered required tests passed; the behavior phase completed in 11.38 seconds.** |
 | 14:03–14:04 | Opened the final visible ClientGameTest and let its complete scripted sequence run. | Validate current resource reload, entity synchronization, vanilla-asset rendering, helmets, carried payloads, rainbow takeoff, slower/higher ballistic arc, target arrival, and explosion. | **PASS — `BUILD SUCCESSFUL` in 1 minute 28 seconds.** All four fresh screenshots were created; no unknown-model or entity-event/cast failure remained. |
 | 14:04 | Inspected all four fresh screenshots at original 1280×720 resolution. | Perform visual QA instead of relying only on process exit. | **PASS.** The static scene shows the chainmail CMD helmet, golden Summon helmet, Elytra Fly, and two carried payloads; the arc shows red/orange/yellow/green/cyan/blue particles; the final frame shows the target-area explosion and naturally fading trail. |
-| 14:05 | Updated `README.md` and this journal for version `1.1.0`. | Keep the durable feature inventory, implementation timeline, failures, fixes, and accepted evidence synchronized with the final source. | Documentation now covers all newly requested behavior and distinguishes historical `1.0.2` results from current `1.1.0` acceptance. |
+| 14:05 | Updated `README.md` and this journal for version `1.1.0`. | Keep the durable feature inventory, implementation timeline, failures, fixes, and accepted evidence synchronized with the final source. | Documentation now covers all newly requested behavior and distinguishes historical `1.0.2` results from the then-current `1.1.0` prerelease acceptance. |
 | 14:06 | Ran the final Gradle build and audited the diff, artifact metadata, server XML, and latest client log. | Package and inspect the exact documented handoff state. | **PASS — `BUILD SUCCESSFUL`; `git diff --check` is clean.** The embedded mod version is `1.1.0`; the XML contains 7 testcase nodes and no failures/errors; the latest client log contains no unknown-model, class-cast, protocol-disconnect, or failed-client-test marker. Artifacts are `shiros-test-mod-1.1.0.jar` (68,265 bytes) and `shiros-test-mod-1.1.0-sources.jar` (29,515 bytes). |
 
 ### Current accepted evidence
@@ -297,9 +297,9 @@ was performed.
 - Dedicated server: **PASS — 7/7 registered tests**
 - Visible integrated client: **PASS**
 - Current binary:
-  `build/libs/shiros-test-mod-1.1.0.jar`
+  `build/libs/shiros-test-mod-1.0.3.jar`
 - Current sources:
-  `build/libs/shiros-test-mod-1.1.0-sources.jar`
+  `build/libs/shiros-test-mod-1.0.3-sources.jar`
 - Machine-readable server report:
   `build/gametest-results.xml`
 - Current visible evidence:
@@ -317,10 +317,10 @@ Expected non-blocking development-client messages remain:
 None caused a gameplay assertion failure, renderer/resource failure, network
 disconnect, or nonzero exit in the accepted final run.
 
-The exact current `1.1.0` working tree is good to go for Minecraft 26.2 local
-development and testing. Because it includes pre-existing uncommitted expansion
-work, review and commit that work deliberately before publishing another
-release.
+The exact current `1.0.3` working tree is good to go for Minecraft 26.2 local
+development and testing. It contains the gameplay feature set originally
+validated and published as the `1.1.0` prerelease, now consistently versioned
+and published as stable `1.0.3`.
 
 ## 2026-07-23 14:37–14:41 beta publication addendum
 
