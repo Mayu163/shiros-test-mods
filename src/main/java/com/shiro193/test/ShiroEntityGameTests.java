@@ -5,10 +5,14 @@ import com.shiro193.entity.FlyCreeper;
 import com.shiro193.entity.ModEntities;
 import com.shiro193.entity.SummonCreeper;
 import com.shiro193.item.ModItems;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -113,8 +117,8 @@ public final class ShiroEntityGameTests {
 		helper.succeed();
 	}
 
-	@GameTest(maxTicks = 150, skyAccess = true)
-	public void cmdCreeperHoldsRangeAndThrowsBothInSlowerHigherGravityArcs(GameTestHelper helper) {
+	@GameTest(maxTicks = 220, skyAccess = true, padding = 128)
+	public void cmdCreeperCapturesAndLaunchesBothPayloadsOnFixedHighArcs(GameTestHelper helper) {
 		CmdCreeper cmd = helper.spawn(ModEntities.CMD_CREEPER, new Vec3(1.0, 2.0, 1.0), EntitySpawnReason.NATURAL);
 		Villager villager = helper.spawn(EntityTypes.VILLAGER, new Vec3(8.0, 2.0, 1.0), EntitySpawnReason.SPAWN_ITEM_USE);
 		villager.setNoAi(true);
@@ -168,18 +172,19 @@ public final class ShiroEntityGameTests {
 			require(
 				helper,
 				initialPayloads.stream().allMatch(
-					payload -> payload.getHorizontalLaunchSpeedMultiplier() >= 0.86
-						&& payload.getHorizontalLaunchSpeedMultiplier() <= 0.91
+					payload -> payload.getPlannedApexHeight() >= FlyCreeper.MINIMUM_LAUNCH_APEX_HEIGHT
+						&& payload.getMaximumLaunchHeight() >= FlyCreeper.MINIMUM_LAUNCH_APEX_HEIGHT - 0.75
 				),
-				"A thrown Fly Creeper's horizontal launch speed was not approximately 10% slower."
-			);
-			require(
-				helper,
-				initialPayloads.stream().allMatch(
-					payload -> payload.getLaunchOriginHeightMultiplier() >= 1.64
-						&& payload.getLaunchOriginHeightMultiplier() <= 1.66
-				),
-				"A thrown Fly Creeper's release height was not approximately 65% higher."
+				"A CMD-launched Fly Creeper did not follow the global 35-block-minimum high arc: "
+					+ initialPayloads.stream()
+						.map(
+							payload -> "planned=" + payload.getPlannedApexHeight()
+								+ ", actual=" + payload.getMaximumLaunchHeight()
+								+ ", phase=" + payload.getFlightPhase()
+								+ ", ticks=" + payload.getBallisticLaunchTicks()
+								+ ", removed=" + payload.isRemoved()
+						)
+						.toList()
 			);
 			require(helper, cmd.getLastPredictedHitTicks() > 0, "CMD Creeper did not calculate a predicted hit time.");
 			require(
@@ -216,9 +221,17 @@ public final class ShiroEntityGameTests {
 				helper,
 				initialPayloads.stream().allMatch(
 					payload -> payload.getTakeoffFireworkBurstsEmitted() > 0
-						&& FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS >= 60
+						&& payload.getTakeoffColorTrailTicksEmitted()
+							>= Math.max(1, payload.getBallisticLaunchTicks() - 1)
 				),
-				"A thrown Fly Creeper did not start a firework trail configured to last at least three seconds."
+				"A thrown Fly Creeper's trail did not remain active for its complete flight: "
+					+ initialPayloads.stream()
+						.map(
+							payload -> "trail=" + payload.getTakeoffColorTrailTicksEmitted()
+								+ ", flight=" + payload.getBallisticLaunchTicks()
+								+ ", gap=" + payload.getMaximumTrailEmissionGap()
+						)
+						.toList()
 			);
 			require(
 				helper,
@@ -235,6 +248,7 @@ public final class ShiroEntityGameTests {
 						&& payload.getTakeoffColorParticlesEmitted()
 							== payload.getTakeoffColorTrailTicksEmitted()
 								* FlyCreeper.TAKEOFF_COLOR_PARTICLES_PER_TICK
+						&& payload.getMaximumTrailEmissionGap() <= 1
 				),
 				"A thrown Fly Creeper's colorful trail was not continuous on every active tick."
 			);
@@ -294,6 +308,76 @@ public final class ShiroEntityGameTests {
 				),
 				"A thrown Fly Creeper did not detonate within two ticks of its predicted hit time."
 			);
+		});
+	}
+
+	@GameTest(maxTicks = 320, skyAccess = true, padding = 128)
+	public void everyFlyCreeperLaunchUsesFixedTerrainAwareHighArcAndContinuousTrail(GameTestHelper helper) {
+		for (int y = 1; y <= 48; y++) {
+			for (int z = 68; z <= 72; z++) {
+				helper.setBlock(new BlockPos(25, y, z), Blocks.STONE);
+			}
+		}
+
+		List<LaunchScenario> scenarios = new ArrayList<>();
+		scenarios.add(launchScenario(helper, "zero-distance", new Vec3(4.0, 4.0, 4.0), new Vec3(0.0, 0.0, 0.0), false));
+		scenarios.add(launchScenario(helper, "short-range", new Vec3(4.0, 4.0, 18.0), new Vec3(3.0, 0.0, 1.0), false));
+		scenarios.add(launchScenario(helper, "diagonal", new Vec3(4.0, 4.0, 34.0), new Vec3(28.0, 0.0, 23.0), false));
+		scenarios.add(launchScenario(helper, "long-range", new Vec3(4.0, 4.0, 52.0), new Vec3(90.0, 0.0, 0.0), false));
+		scenarios.add(launchScenario(helper, "high-target", new Vec3(55.0, 4.0, 4.0), new Vec3(24.0, 42.0, 0.0), false));
+		scenarios.add(launchScenario(helper, "low-target", new Vec3(55.0, 30.0, 24.0), new Vec3(30.0, -20.0, 0.0), false));
+		scenarios.add(launchScenario(helper, "elevated-origin", new Vec3(55.0, 26.0, 48.0), new Vec3(-36.0, -16.0, 18.0), false));
+		LaunchScenario terrainScenario = launchScenario(
+			helper,
+			"48-block-ridge",
+			new Vec3(4.0, 4.0, 70.0),
+			new Vec3(42.0, 0.0, 0.0),
+			true
+		);
+		scenarios.add(terrainScenario);
+
+		for (LaunchScenario scenario : scenarios) {
+			FlyCreeper fly = scenario.fly();
+			Vec3 originalDestination = fly.getLaunchDestination();
+			Vec3 originalVelocity = fly.getInitialLaunchVelocity();
+			fly.launchAt(originalDestination.add(100.0, -30.0, 100.0));
+			fly.setDeltaMovement(originalVelocity.add(0.75, 1.0, -0.5));
+			require(
+				helper,
+				originalDestination.equals(fly.getLaunchDestination())
+					&& originalVelocity.equals(fly.getInitialLaunchVelocity()),
+				scenario.name() + " launch plan changed after takeoff."
+			);
+		}
+
+		helper.succeedWhen(() -> {
+			for (LaunchScenario scenario : scenarios) {
+				assertCompletedHighArc(helper, scenario);
+			}
+			require(
+				helper,
+				terrainScenario.fly().wasTrajectoryRaisedForTerrain(),
+				"The obstructed launch was not automatically raised above its 48-block ridge."
+			);
+			require(
+				helper,
+				terrainScenario.fly().getPlannedTerrainClearance() >= FlyCreeper.TERRAIN_CLEARANCE,
+				"The terrain-aware trajectory did not retain the required clearance."
+			);
+			require(
+				helper,
+				scenarios.stream()
+					.filter(scenario -> scenario.name().equals("high-target"))
+					.allMatch(
+						scenario -> scenario.fly().getPlannedApexHeight()
+							>= 42.0 + 8.0 - 0.01
+					),
+				"The high-target trajectory did not automatically raise its apex above the 35-block minimum."
+			);
+			scenarios.stream()
+				.flatMap(scenario -> scenario.forcedChunks().stream())
+				.distinct()
+				.forEach(chunk -> helper.getLevel().setChunkForced(chunk.x(), chunk.z(), false));
 		});
 	}
 
@@ -507,5 +591,124 @@ public final class ShiroEntityGameTests {
 		if (!condition) {
 			throw helper.assertionException(Component.literal(message));
 		}
+	}
+
+	private static LaunchScenario launchScenario(
+		GameTestHelper helper,
+		String name,
+		Vec3 spawnPosition,
+		Vec3 targetOffset,
+		boolean terrainExpected
+	) {
+		FlyCreeper fly = helper.spawn(ModEntities.FLY_CREEPER, spawnPosition, EntitySpawnReason.SPAWN_ITEM_USE);
+		fly.setInvulnerable(true);
+		fly.setCustomName(Component.literal("Fly Creeper"));
+		Vec3 destination = fly.position().add(targetOffset);
+		Set<ChunkPos> forcedChunks = forceTrajectoryChunks(helper, fly.position(), destination);
+		fly.launchAt(destination);
+		return new LaunchScenario(
+			name,
+			fly,
+			destination,
+			fly.getInitialLaunchVelocity(),
+			terrainExpected,
+			List.copyOf(forcedChunks)
+		);
+	}
+
+	private static Set<ChunkPos> forceTrajectoryChunks(GameTestHelper helper, Vec3 origin, Vec3 destination) {
+		Set<ChunkPos> chunks = new HashSet<>();
+		int samples = Math.max(1, (int)Math.ceil(origin.distanceTo(destination) / 8.0));
+		for (int sample = 0; sample <= samples; sample++) {
+			double progress = (double)sample / samples;
+			BlockPos position = BlockPos.containing(origin.lerp(destination, progress));
+			ChunkPos chunk = new ChunkPos(position.getX() >> 4, position.getZ() >> 4);
+			if (chunks.add(chunk)) {
+				helper.getLevel().setChunkForced(chunk.x(), chunk.z(), true);
+			}
+		}
+		return chunks;
+	}
+
+	private static void assertCompletedHighArc(GameTestHelper helper, LaunchScenario scenario) {
+		FlyCreeper fly = scenario.fly();
+		require(helper, fly.wasLaunched(), scenario.name() + " was not launched.");
+		require(
+			helper,
+			fly.hasReachedBallisticApex(),
+			scenario.name() + " never completed its initial ascent (phase=" + fly.getFlightPhase()
+				+ ", ticks=" + fly.getBallisticLaunchTicks()
+				+ ", planned=" + fly.getPlannedApexHeight()
+				+ ", actual=" + fly.getMaximumLaunchHeight()
+				+ ", velocity=" + fly.getDeltaMovement()
+				+ ", complete=" + fly.isLaunchFlightComplete()
+				+ ", removed=" + fly.isRemoved() + ")."
+		);
+		require(
+			helper,
+			fly.getPlannedApexHeight() >= FlyCreeper.MINIMUM_LAUNCH_APEX_HEIGHT
+				&& fly.getMaximumLaunchHeight() >= FlyCreeper.MINIMUM_LAUNCH_APEX_HEIGHT - 0.75,
+			scenario.name() + " selected a low or ground-skimming trajectory (planned="
+				+ fly.getPlannedApexHeight() + ", actual=" + fly.getMaximumLaunchHeight() + ")."
+		);
+		require(
+			helper,
+			fly.isLaunchFlightComplete() || fly.isRemoved(),
+			scenario.name() + " did not land, reach its target, or otherwise complete its flight."
+		);
+		require(
+			helper,
+			scenario.destination().equals(fly.getLaunchDestination())
+				&& scenario.initialVelocity().equals(fly.getInitialLaunchVelocity()),
+			scenario.name() + " changed its fixed destination or initial trajectory during flight."
+		);
+		Vec3 fixedHorizontal = fly.getFixedHorizontalVelocity();
+		require(
+			helper,
+			fixedHorizontal.lengthSqr() < 1.0E-12
+				|| Math.abs(fixedHorizontal.normalize().dot(scenario.initialVelocity().multiply(1.0, 0.0, 1.0).normalize()) - 1.0)
+					< 1.0E-9,
+			scenario.name() + " did not retain its launch-time horizontal course."
+		);
+		require(
+			helper,
+			!scenario.terrainExpected()
+				|| fly.wasTrajectoryRaisedForTerrain()
+					&& fly.getPlannedTerrainClearance() >= FlyCreeper.TERRAIN_CLEARANCE,
+			scenario.name() + " did not automatically raise and clear its obstructing terrain."
+		);
+		require(
+			helper,
+			fly.getTakeoffFireworkEffectsTriggered() == 1
+				&& fly.getTakeoffFireworkLaunchSoundsPlayed() == 1,
+			scenario.name() + " did not preserve the exactly-once launch sound behavior."
+		);
+		require(
+			helper,
+			fly.getTakeoffColorTrailTicksEmitted() >= Math.max(1, fly.getBallisticLaunchTicks() - 1)
+				&& fly.getTakeoffColorTrailTicksEmitted() > fly.getPredictedImpactTicks() / 2
+				&& fly.getMaximumTrailEmissionGap() <= 1,
+			scenario.name() + " trail was interrupted or stopped during the latter half of flight (trailTicks="
+				+ fly.getTakeoffColorTrailTicksEmitted() + ", flightTicks=" + fly.getBallisticLaunchTicks()
+				+ ", maxGap=" + fly.getMaximumTrailEmissionGap() + ")."
+		);
+		require(
+			helper,
+			fly.getTakeoffFireworkBurstsEmitted() == fly.getTakeoffColorTrailTicksEmitted()
+				&& fly.getTakeoffColorParticlesEmitted()
+					== fly.getTakeoffColorTrailTicksEmitted() * FlyCreeper.TAKEOFF_COLOR_PARTICLES_PER_TICK
+				&& fly.getTakeoffFireworkDistinctColorCount() == 7,
+			scenario.name() + " did not preserve the continuous seven-color visual trail."
+		);
+	}
+
+	private record LaunchScenario(
+		String name,
+		FlyCreeper fly,
+		Vec3 destination,
+		Vec3 initialVelocity,
+		boolean terrainExpected,
+		List<ChunkPos> forcedChunks
+	) {
 	}
 }

@@ -24,6 +24,7 @@ import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
@@ -33,7 +34,8 @@ public class FlyCreeper extends Creeper {
 	private static final double CRUISE_SPEED = 0.78;
 	private static final double DIVE_SPEED = 1.18;
 	private static final double BALLISTIC_IMPACT_RADIUS = 2.0;
-	public static final int TAKEOFF_FIREWORK_DURATION_TICKS = 80;
+	public static final double MINIMUM_LAUNCH_APEX_HEIGHT = 35.0;
+	public static final double TERRAIN_CLEARANCE = 4.0;
 	public static final int TAKEOFF_FIREWORK_PRIMARY_PARTICLES_PER_TICK = 4;
 	public static final int TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK = 3;
 	public static final int TAKEOFF_COLOR_PARTICLES_PER_TICK = 8;
@@ -48,6 +50,11 @@ public class FlyCreeper extends Creeper {
 		0xAF52DE
 	};
 	private static final int VANILLA_CREEPER_FUSE_TICKS = 30;
+	private static final double BALLISTIC_GRAVITY = 0.08;
+	private static final double BALLISTIC_VERTICAL_DRAG = 0.98;
+	private static final int MAX_BALLISTIC_FLIGHT_TICKS = 600;
+	private static final double TERRAIN_PLANNING_INCREMENT = 5.0;
+	private static final double TARGET_HEIGHT_CLEARANCE = 8.0;
 
 	private VillageTargeting.@Nullable Target villageTarget;
 	private @Nullable Vec3 forcedDestination;
@@ -58,23 +65,24 @@ public class FlyCreeper extends Creeper {
 	private boolean reachedBallisticApex;
 	private boolean descendedUnderGravity;
 	private boolean reachedLaunchTarget;
+	private boolean launchFlightComplete;
+	private boolean terrainRaisedTrajectory;
 	private int ballisticLaunchTicks;
 	private double launchStartY;
 	private double maximumLaunchY;
+	private double plannedApexHeight;
+	private double plannedTerrainClearance;
 	private double closestLaunchTargetDistanceSqr = Double.POSITIVE_INFINITY;
 	private double initialLaunchSpeed;
 	private double ballisticHorizontalSpeed;
-	private double referenceHorizontalLaunchSpeed;
-	private double legacyLaunchOriginHeightOffset;
-	private double launchOriginHeightOffset;
-	private double referenceTrajectoryApexHeight;
-	private double predictedTrajectoryApexHeight;
+	private Vec3 fixedHorizontalVelocity = Vec3.ZERO;
+	private Vec3 initialLaunchVelocity = Vec3.ZERO;
+	private double fixedVerticalVelocity;
 	private int predictedImpactTicks;
 	private int scheduledFuseIgnitionTick;
 	private int fuseIgnitedAtLaunchTick = -1;
 	private int targetReachedAtLaunchTick = -1;
 	private int detonatedAtLaunchTick = -1;
-	private int takeoffFireworkTicks;
 	private int takeoffFireworkEffectsTriggered;
 	private int takeoffFireworkLaunchSoundsPlayed;
 	private int takeoffFireworkBurstsEmitted;
@@ -82,6 +90,8 @@ public class FlyCreeper extends Creeper {
 	private int takeoffColorTrailTicksEmitted;
 	private int takeoffColorParticlesEmitted;
 	private int takeoffFireworkColorMask;
+	private long lastTrailEmissionGameTick = Long.MIN_VALUE;
+	private int maximumTrailEmissionGap;
 
 	public FlyCreeper(EntityType<? extends FlyCreeper> type, Level level) {
 		super(type, level);
@@ -103,20 +113,15 @@ public class FlyCreeper extends Creeper {
 		this.goalSelector.addGoal(6, new RandomLookAroundGoal(this));
 	}
 
-	public void launchAt(
-		Vec3 destination,
-		Vec3 initialVelocity,
-		int predictedImpactTicks,
-		double referenceTrajectoryApexHeight,
-		double predictedTrajectoryApexHeight,
-		double referenceHorizontalLaunchSpeed,
-		double legacyLaunchOriginHeightOffset,
-		double launchOriginHeightOffset
-	) {
+	public void launchAt(Vec3 destination) {
+		if (this.launched && !this.launchFlightComplete) {
+			return;
+		}
 		if (this.isPassenger()) {
 			this.stopRiding();
 		}
 
+		LaunchPlan launchPlan = this.createLaunchPlan(destination);
 		this.forcedDestination = destination;
 		this.launched = true;
 		this.flightPhase = FlightPhase.BALLISTIC_ASCENT;
@@ -125,18 +130,24 @@ public class FlyCreeper extends Creeper {
 		this.reachedBallisticApex = false;
 		this.descendedUnderGravity = false;
 		this.reachedLaunchTarget = false;
+		this.launchFlightComplete = false;
+		this.terrainRaisedTrajectory = launchPlan.terrainRaised();
 		this.ballisticLaunchTicks = 0;
 		this.launchStartY = this.getY();
 		this.maximumLaunchY = this.getY();
+		this.plannedApexHeight = launchPlan.apexHeight();
+		this.plannedTerrainClearance = launchPlan.minimumTerrainClearance();
 		this.closestLaunchTargetDistanceSqr = this.position().distanceToSqr(destination);
-		this.initialLaunchSpeed = initialVelocity.length();
-		this.ballisticHorizontalSpeed = Math.sqrt(initialVelocity.x * initialVelocity.x + initialVelocity.z * initialVelocity.z);
-		this.referenceHorizontalLaunchSpeed = referenceHorizontalLaunchSpeed;
-		this.legacyLaunchOriginHeightOffset = legacyLaunchOriginHeightOffset;
-		this.launchOriginHeightOffset = launchOriginHeightOffset;
-		this.referenceTrajectoryApexHeight = referenceTrajectoryApexHeight;
-		this.predictedTrajectoryApexHeight = predictedTrajectoryApexHeight;
-		this.predictedImpactTicks = Math.max(1, predictedImpactTicks);
+		this.initialLaunchVelocity = launchPlan.initialVelocity();
+		this.fixedVerticalVelocity = this.initialLaunchVelocity.y;
+		this.fixedHorizontalVelocity = new Vec3(
+			this.initialLaunchVelocity.x,
+			0.0,
+			this.initialLaunchVelocity.z
+		);
+		this.initialLaunchSpeed = this.initialLaunchVelocity.length();
+		this.ballisticHorizontalSpeed = this.fixedHorizontalVelocity.length();
+		this.predictedImpactTicks = launchPlan.flightTicks();
 		this.scheduledFuseIgnitionTick = Math.max(
 			1,
 			this.predictedImpactTicks - VANILLA_CREEPER_FUSE_TICKS + 1
@@ -146,7 +157,7 @@ public class FlyCreeper extends Creeper {
 		this.detonatedAtLaunchTick = -1;
 		this.getNavigation().stop();
 		this.setNoGravity(false);
-		this.setDeltaMovement(initialVelocity);
+		this.setDeltaMovement(this.initialLaunchVelocity);
 		this.triggerTakeoffFirework();
 	}
 
@@ -198,38 +209,40 @@ public class FlyCreeper extends Creeper {
 		return this.ballisticHorizontalSpeed;
 	}
 
-	public double getHorizontalLaunchSpeedMultiplier() {
-		return this.referenceHorizontalLaunchSpeed <= 0.0
-			? 0.0
-			: this.ballisticHorizontalSpeed / this.referenceHorizontalLaunchSpeed;
+	public Vec3 getInitialLaunchVelocity() {
+		return this.initialLaunchVelocity;
 	}
 
-	public double getLaunchOriginHeightOffset() {
-		return this.launchOriginHeightOffset;
+	public @Nullable Vec3 getLaunchDestination() {
+		return this.forcedDestination;
 	}
 
-	public double getLaunchOriginHeightMultiplier() {
-		return this.legacyLaunchOriginHeightOffset <= 0.0
-			? 0.0
-			: this.launchOriginHeightOffset / this.legacyLaunchOriginHeightOffset;
+	public Vec3 getFixedHorizontalVelocity() {
+		return this.fixedHorizontalVelocity;
+	}
+
+	public boolean isLaunchFlightComplete() {
+		return this.launchFlightComplete;
 	}
 
 	public int getPredictedImpactTicks() {
 		return this.predictedImpactTicks;
 	}
 
-	public double getReferenceTrajectoryApexHeight() {
-		return this.referenceTrajectoryApexHeight;
+	public double getPlannedApexHeight() {
+		return this.plannedApexHeight;
 	}
 
 	public double getPredictedTrajectoryApexHeight() {
-		return this.predictedTrajectoryApexHeight;
+		return this.plannedApexHeight;
 	}
 
-	public double getPredictedTrajectoryHeightMultiplier() {
-		return this.referenceTrajectoryApexHeight <= 0.0
-			? 0.0
-			: this.predictedTrajectoryApexHeight / this.referenceTrajectoryApexHeight;
+	public double getPlannedTerrainClearance() {
+		return this.plannedTerrainClearance;
+	}
+
+	public boolean wasTrajectoryRaisedForTerrain() {
+		return this.terrainRaisedTrajectory;
 	}
 
 	public int getScheduledFuseIgnitionTick() {
@@ -253,7 +266,7 @@ public class FlyCreeper extends Creeper {
 	}
 
 	public boolean isTakeoffFireworkActive() {
-		return this.takeoffFireworkTicks > 0;
+		return this.shouldEmitFlightTrail();
 	}
 
 	public int getTakeoffFireworkEffectsTriggered() {
@@ -284,6 +297,10 @@ public class FlyCreeper extends Creeper {
 		return Integer.bitCount(this.takeoffFireworkColorMask);
 	}
 
+	public int getMaximumTrailEmissionGap() {
+		return this.maximumTrailEmissionGap;
+	}
+
 	public @Nullable Vec3 getAttackDestination() {
 		if (this.forcedDestination != null) {
 			return this.forcedDestination;
@@ -299,10 +316,20 @@ public class FlyCreeper extends Creeper {
 
 	@Override
 	public void tick() {
+		if (this.launched && !this.launchFlightComplete) {
+			this.setDeltaMovement(
+				this.fixedHorizontalVelocity.x,
+				this.fixedVerticalVelocity,
+				this.fixedHorizontalVelocity.z
+			);
+		}
 		boolean trackingBallisticDetonation = this.launched && !this.isRemoved();
 		super.tick();
 		if (trackingBallisticDetonation && this.isRemoved() && this.detonatedAtLaunchTick < 0) {
 			this.detonatedAtLaunchTick = this.ballisticLaunchTicks;
+		}
+		if (this.launched && !this.launchFlightComplete && !this.isRemoved()) {
+			this.tickBallisticFlight();
 		}
 		this.tickTakeoffFirework();
 	}
@@ -315,14 +342,13 @@ public class FlyCreeper extends Creeper {
 			return;
 		}
 
-		this.takeoffFireworkTicks = TAKEOFF_FIREWORK_DURATION_TICKS;
 		this.takeoffFireworkEffectsTriggered++;
 		this.takeoffFireworkLaunchSoundsPlayed++;
 		this.playSound(SoundEvents.FIREWORK_ROCKET_LAUNCH, 1.5F, 1.0F);
 	}
 
 	private void tickTakeoffFirework() {
-		if (this.takeoffFireworkTicks <= 0 || !(this.level() instanceof ServerLevel serverLevel)) {
+		if (!this.shouldEmitFlightTrail() || !(this.level() instanceof ServerLevel serverLevel)) {
 			return;
 		}
 
@@ -357,7 +383,7 @@ public class FlyCreeper extends Creeper {
 		this.takeoffFireworkBurstsEmitted++;
 		this.takeoffFireworkParticlesEmitted += TAKEOFF_FIREWORK_PRIMARY_PARTICLES_PER_TICK
 			+ TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK;
-		int elapsedTicks = TAKEOFF_FIREWORK_DURATION_TICKS - this.takeoffFireworkTicks;
+		int elapsedTicks = this.takeoffColorTrailTicksEmitted;
 		int colorIndex = (elapsedTicks / TAKEOFF_COLOR_PHASE_DURATION_TICKS) % RAINBOW_FIREWORK_COLORS.length;
 		DustParticleOptions colorParticle = new DustParticleOptions(RAINBOW_FIREWORK_COLORS[colorIndex], 1.2F);
 		serverLevel.sendParticles(
@@ -385,7 +411,160 @@ public class FlyCreeper extends Creeper {
 		this.takeoffColorTrailTicksEmitted++;
 		this.takeoffColorParticlesEmitted += TAKEOFF_COLOR_PARTICLES_PER_TICK;
 		this.takeoffFireworkColorMask |= 1 << colorIndex;
-		this.takeoffFireworkTicks--;
+		long gameTime = serverLevel.getGameTime();
+		if (this.lastTrailEmissionGameTick != Long.MIN_VALUE) {
+			this.maximumTrailEmissionGap = Math.max(
+				this.maximumTrailEmissionGap,
+				(int)(gameTime - this.lastTrailEmissionGameTick)
+			);
+		}
+		this.lastTrailEmissionGameTick = gameTime;
+	}
+
+	private boolean shouldEmitFlightTrail() {
+		if (this.takeoffFireworkEffectsTriggered == 0 || this.isRemoved() || this.isPassenger()) {
+			return false;
+		}
+		if (this.launched) {
+			return !this.launchFlightComplete;
+		}
+		return this.flightPhase != FlightPhase.SEARCHING || !this.onGround();
+	}
+
+	private LaunchPlan createLaunchPlan(Vec3 destination) {
+		Vec3 origin = this.position();
+		double targetHeightOffset = destination.y - origin.y;
+		double minimumRequiredApex = Math.max(
+			MINIMUM_LAUNCH_APEX_HEIGHT,
+			targetHeightOffset + TARGET_HEIGHT_CLEARANCE
+		);
+		double candidateApex = minimumRequiredApex;
+		double minimumTerrainClearance = Double.POSITIVE_INFINITY;
+		boolean terrainRaised = false;
+
+		for (int attempt = 0; attempt < 64; attempt++) {
+			double verticalSpeed = solveInitialVerticalSpeedForApex(candidateApex);
+			int flightTicks = estimateBallisticFlightTicks(verticalSpeed, targetHeightOffset);
+			minimumTerrainClearance = this.estimateMinimumTerrainClearance(
+				origin,
+				destination,
+				verticalSpeed,
+				flightTicks
+			);
+			if (minimumTerrainClearance >= TERRAIN_CLEARANCE) {
+				Vec3 horizontalOffset = new Vec3(destination.x - origin.x, 0.0, destination.z - origin.z);
+				Vec3 horizontalVelocity = horizontalOffset.lengthSqr() < 1.0E-12
+					? Vec3.ZERO
+					: horizontalOffset.scale(1.0 / flightTicks);
+				return new LaunchPlan(
+					horizontalVelocity.add(0.0, verticalSpeed, 0.0),
+					flightTicks,
+					Math.max(candidateApex, estimateBallisticApexHeight(verticalSpeed)),
+					minimumTerrainClearance,
+					terrainRaised
+				);
+			}
+
+			terrainRaised = true;
+			candidateApex += Math.max(
+				TERRAIN_PLANNING_INCREMENT,
+				TERRAIN_CLEARANCE - minimumTerrainClearance + 1.0
+			);
+		}
+
+		throw new IllegalStateException(
+			"Unable to plan a terrain-clearing Fly Creeper arc from " + origin + " to " + destination
+		);
+	}
+
+	private double estimateMinimumTerrainClearance(
+		Vec3 origin,
+		Vec3 destination,
+		double initialVerticalSpeed,
+		int flightTicks
+	) {
+		double horizontalDistanceSqr = Mth.square(destination.x - origin.x)
+			+ Mth.square(destination.z - origin.z);
+		if (horizontalDistanceSqr < 1.0E-12) {
+			return Double.POSITIVE_INFINITY;
+		}
+
+		double minimumClearance = Double.POSITIVE_INFINITY;
+		double relativeY = 0.0;
+		double verticalSpeed = initialVerticalSpeed;
+		for (int tick = 1; tick < flightTicks; tick++) {
+			relativeY += verticalSpeed;
+			verticalSpeed = (verticalSpeed - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
+			double progress = (double)tick / flightTicks;
+			if (progress < 0.05 || progress > 0.90) {
+				continue;
+			}
+
+			double x = Mth.lerp(progress, origin.x, destination.x);
+			double z = Mth.lerp(progress, origin.z, destination.z);
+			int terrainY = this.level().getHeight(
+				Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+				Mth.floor(x),
+				Mth.floor(z)
+			);
+			minimumClearance = Math.min(minimumClearance, origin.y + relativeY - terrainY);
+		}
+		return minimumClearance;
+	}
+
+	private static double solveInitialVerticalSpeedForApex(double requiredApexHeight) {
+		double low = 0.0;
+		double high = 8.0;
+		for (int iteration = 0; iteration < 64; iteration++) {
+			double candidate = (low + high) * 0.5;
+			if (estimateBallisticApexHeight(candidate) < requiredApexHeight) {
+				low = candidate;
+			} else {
+				high = candidate;
+			}
+		}
+		return (low + high) * 0.5;
+	}
+
+	private static double estimateBallisticApexHeight(double initialVerticalSpeed) {
+		double relativeY = 0.0;
+		double maximumY = 0.0;
+		double verticalSpeed = initialVerticalSpeed;
+		for (int tick = 1; tick <= MAX_BALLISTIC_FLIGHT_TICKS; tick++) {
+			relativeY += verticalSpeed;
+			maximumY = Math.max(maximumY, relativeY);
+			verticalSpeed = (verticalSpeed - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
+			if (verticalSpeed <= 0.0) {
+				return maximumY;
+			}
+		}
+		return maximumY;
+	}
+
+	private static int estimateBallisticFlightTicks(double initialVerticalSpeed, double targetHeightOffset) {
+		double relativeY = 0.0;
+		double verticalSpeed = initialVerticalSpeed;
+		boolean passedApex = false;
+		for (int tick = 1; tick <= MAX_BALLISTIC_FLIGHT_TICKS; tick++) {
+			relativeY += verticalSpeed;
+			verticalSpeed = (verticalSpeed - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
+			if (verticalSpeed <= 0.0) {
+				passedApex = true;
+			}
+			if (passedApex && relativeY <= targetHeightOffset) {
+				return tick;
+			}
+		}
+		throw new IllegalStateException("Fly Creeper ballistic arc did not converge within the planning limit.");
+	}
+
+	private record LaunchPlan(
+		Vec3 initialVelocity,
+		int flightTicks,
+		double apexHeight,
+		double minimumTerrainClearance,
+		boolean terrainRaised
+	) {
 	}
 
 	private boolean acquireTarget() {
@@ -431,7 +610,12 @@ public class FlyCreeper extends Creeper {
 		this.setXRot(Mth.clamp(pitch, -85.0F, 85.0F));
 	}
 
-	private void tickBallisticFlight(Vec3 target) {
+	private void tickBallisticFlight() {
+		Vec3 target = this.forcedDestination;
+		if (target == null) {
+			this.launchFlightComplete = true;
+			return;
+		}
 		this.setNoGravity(false);
 		this.ballisticLaunchTicks++;
 		this.maximumLaunchY = Math.max(this.maximumLaunchY, this.getY());
@@ -452,17 +636,14 @@ public class FlyCreeper extends Creeper {
 			this.descendedUnderGravity = true;
 		}
 
-		Vec3 horizontalOffset = new Vec3(target.x - this.getX(), 0.0, target.z - this.getZ());
-		double horizontalDistance = horizontalOffset.length();
-		Vec3 horizontalVelocity = Vec3.ZERO;
-		if (horizontalDistance > 1.0E-6) {
-			double speed = Math.min(this.ballisticHorizontalSpeed, horizontalDistance);
-			horizontalVelocity = horizontalOffset.scale(speed / horizontalDistance);
-		}
-
-		Vec3 guidedVelocity = new Vec3(horizontalVelocity.x, velocity.y, horizontalVelocity.z);
-		this.setDeltaMovement(guidedVelocity);
-		this.faceVelocity(guidedVelocity);
+		this.fixedVerticalVelocity = (this.fixedVerticalVelocity - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
+		Vec3 fixedCourseVelocity = new Vec3(
+			this.fixedHorizontalVelocity.x,
+			this.fixedVerticalVelocity,
+			this.fixedHorizontalVelocity.z
+		);
+		this.setDeltaMovement(fixedCourseVelocity);
+		this.faceVelocity(fixedCourseVelocity);
 
 		double distanceSqr = this.position().distanceToSqr(target);
 		this.closestLaunchTargetDistanceSqr = Math.min(this.closestLaunchTargetDistanceSqr, distanceSqr);
@@ -475,6 +656,13 @@ public class FlyCreeper extends Creeper {
 				this.ignite();
 				this.fuseIgnitedAtLaunchTick = this.ballisticLaunchTicks;
 			}
+			this.launchFlightComplete = true;
+		} else if (
+			this.flightPhase == FlightPhase.BALLISTIC_DESCENT
+				&& this.onGround()
+				&& this.ballisticLaunchTicks > 2
+		) {
+			this.launchFlightComplete = true;
 		}
 	}
 
@@ -533,7 +721,6 @@ public class FlyCreeper extends Creeper {
 
 			if (FlyCreeper.this.launched) {
 				FlyCreeper.this.getLookControl().setLookAt(target.x, target.y, target.z, 90.0F, 90.0F);
-				FlyCreeper.this.tickBallisticFlight(target);
 				return;
 			}
 

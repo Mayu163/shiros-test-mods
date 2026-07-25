@@ -232,13 +232,11 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 							+ ", bursts=" + payload.getTakeoffFireworkBurstsEmitted() + ")."
 					);
 				}
-				if (FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS < 60
-					|| payload.getTakeoffColorTrailTicksEmitted() < 2
+				if (payload.getTakeoffColorTrailTicksEmitted() < 2
 					|| payload.getTakeoffFireworkDistinctColorCount() < 2) {
 					throw new AssertionError(
-						"Visible payload did not begin its 3+ second rainbow firework sequence (duration="
-							+ FlyCreeper.TAKEOFF_FIREWORK_DURATION_TICKS
-							+ ", colorTrailTicks=" + payload.getTakeoffColorTrailTicksEmitted()
+						"Visible payload did not begin its flight-long rainbow firework sequence (colorTrailTicks="
+							+ payload.getTakeoffColorTrailTicksEmitted()
 							+ ", colors=" + payload.getTakeoffFireworkDistinctColorCount() + ")."
 					);
 				}
@@ -274,31 +272,57 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 			}
 			ShiroSTestMod.LOGGER.info("Visible firework takeoff screenshot: {}", fireworkScreenshot.toAbsolutePath());
 
-			context.waitTicks(15);
+			Optional<BlockPos> airbornePayloadCandidate = Optional.empty();
+			for (int waitTick = 0; waitTick < 60 && airbornePayloadCandidate.isEmpty(); waitTick++) {
+				context.waitTicks(1);
+				airbornePayloadCandidate = world.getServer().computeOnServer(server -> {
+					ServerLevel level = server.getPlayerList().getPlayers().getFirst().level();
+					AABB scene = new AABB(sceneCenter).inflate(64.0);
+					return level.getEntitiesOfClass(
+							FlyCreeper.class,
+							scene,
+							fly -> fly.wasLaunched()
+								&& fly.hasReachedBallisticApex()
+								&& fly.hasDescendedUnderGravity()
+								&& fly.getTakeoffColorTrailTicksEmitted() > fly.getPredictedImpactTicks() / 2
+								&& !fly.hasReachedLaunchTarget()
+						)
+						.stream()
+						.map(FlyCreeper::blockPosition)
+						.findFirst();
+				});
+			}
+			airbornePayloadCandidate.orElseThrow(
+				() -> new AssertionError("No Fly Creeper was visible on the descending ballistic arc.")
+			);
 			BlockPos airbornePayload = world.getServer().computeOnServer(server -> {
 				ServerLevel level = server.getPlayerList().getPlayers().getFirst().level();
-				AABB scene = new AABB(sceneCenter).inflate(24.0);
+				AABB scene = new AABB(sceneCenter).inflate(64.0);
 				FlyCreeper payload = level.getEntitiesOfClass(
 						FlyCreeper.class,
 						scene,
-						fly -> fly.wasLaunched() && fly.hasReachedBallisticApex() && !fly.hasReachedLaunchTarget()
+						fly -> fly.wasLaunched()
+							&& fly.hasReachedBallisticApex()
+							&& fly.hasDescendedUnderGravity()
+							&& fly.getTakeoffColorTrailTicksEmitted() > fly.getPredictedImpactTicks() / 2
+							&& !fly.hasReachedLaunchTarget()
 					)
 					.stream()
 					.findFirst()
-					.orElseThrow(() -> new AssertionError("No Fly Creeper was visible on the descending ballistic arc."));
-				if (payload.getHorizontalLaunchSpeedMultiplier() < 0.86
-					|| payload.getHorizontalLaunchSpeedMultiplier() > 0.91
-					|| payload.getLaunchOriginHeightMultiplier() < 1.64
-					|| payload.getLaunchOriginHeightMultiplier() > 1.66
+					.orElseThrow(() -> new AssertionError("The descending Fly Creeper disappeared before arc validation."));
+				if (payload.getPlannedApexHeight() < FlyCreeper.MINIMUM_LAUNCH_APEX_HEIGHT
 					|| payload.getMaximumLaunchHeight() < payload.getPredictedTrajectoryApexHeight() - 0.75
 					|| !payload.hasDescendedUnderGravity()
+					|| !payload.isTakeoffFireworkActive()
+					|| payload.getTakeoffColorTrailTicksEmitted() <= payload.getPredictedImpactTicks() / 2
+					|| payload.getMaximumTrailEmissionGap() > 1
 					|| payload.isNoGravity()) {
 					throw new AssertionError(
-						"Visible payload did not complete the slower, higher-release gravity arc (height="
+						"Visible payload did not complete its fixed high gravity arc (height="
 							+ payload.getMaximumLaunchHeight()
 							+ ", predicted=" + payload.getPredictedTrajectoryApexHeight()
-							+ ", speedMultiplier=" + payload.getHorizontalLaunchSpeedMultiplier()
-							+ ", originMultiplier=" + payload.getLaunchOriginHeightMultiplier()
+							+ ", trailTicks=" + payload.getTakeoffColorTrailTicksEmitted()
+							+ ", trailGap=" + payload.getMaximumTrailEmissionGap()
 							+ ", phase=" + payload.getFlightPhase() + ")."
 					);
 				}
@@ -315,11 +339,11 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 			context.getInput().lookAt(sceneCenter.offset(0, 1, 7));
 			context.waitTicks(2);
 			Optional<BlockPos> impactPayloadCandidate = Optional.empty();
-			for (int waitTick = 0; waitTick < 24 && impactPayloadCandidate.isEmpty(); waitTick++) {
+			for (int waitTick = 0; waitTick < 50 && impactPayloadCandidate.isEmpty(); waitTick++) {
 				context.waitTicks(1);
 				impactPayloadCandidate = world.getServer().computeOnServer(server -> {
 					ServerLevel level = server.getPlayerList().getPlayers().getFirst().level();
-					AABB scene = new AABB(sceneCenter).inflate(24.0);
+					AABB scene = new AABB(sceneCenter).inflate(64.0);
 					return level.getEntitiesOfClass(
 							FlyCreeper.class,
 							scene,

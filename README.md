@@ -11,7 +11,7 @@ gold-helmeted summoner that calls in timed reinforcements.
 | Mod name | Shiro's Test Mod |
 | Mod ID | `shiros-test-mod` |
 | Java package | `com.shiro193` |
-| Mod version | `1.0.4-beta` |
+| Mod version | `1.0.5-beta` |
 | Minecraft | `26.2` |
 | Fabric Loader | `0.19.3` or newer |
 | Fabric API | `0.155.2+26.2` |
@@ -47,17 +47,17 @@ Features:
   fuse behavior, swelling animation, and explosion mechanics.
 - Is equipped in its chest slot with a real vanilla Elytra item.
 - Every takeoff emits a firework boost effect attached to the moving Creeper:
-  an 80-tick (four-second) sequence built from vanilla firework-spark and
-  colored-dust particles.
+  a flight-long sequence built from vanilla firework-spark and colored-dust
+  particles.
 - The vanilla firework-rocket launch sound plays exactly once when the Fly
   Creeper takes off. The continuing trail is particle-only and produces no
   repeated firework blast or explosion sounds.
 - Two tight movement-relative emitters produce a continuous white spark core.
   Silent colored particles are emitted on every active tick, cycling every
   five ticks through red, orange, yellow, green, cyan, blue, and purple.
-- The configured emitter duration exceeds the requested three seconds.
-  Existing particles retain their vanilla lifetime after the moving emitter
-  stops or the payload detonates.
+- Trail emission continues on every flight tick, including the complete
+  descent, and stops only when the Fly Creeper lands, reaches its destination,
+  detonates, or otherwise completes the flight.
 - The boost occurs for both autonomous flight and CMD-launched payloads, and
   is triggered once for each actual takeoff.
 - Searches within 128 blocks for the nearest living Villager.
@@ -69,13 +69,15 @@ Features:
 - A naturally attacking Fly Creeper steers directly through the air, ignores
   gravity while flying, and avoids fall damage during its active flight.
 - A CMD-launched Fly Creeper instead follows a gravity-driven ballistic arc:
-  it starts with a strong upward velocity, climbs to a high apex, then falls
-  naturally toward its assigned target.
-- Its launch prediction incorporates the slower horizontal release and
-  65%-higher origin, then verifies that the payload reaches the resulting
-  raised apex.
-- During the ballistic descent, only horizontal guidance is corrected; the
-  vertical movement remains Minecraft's normal gravity and drag.
+  every launch rises at least 35 blocks above its release elevation, then
+  falls toward its assigned target.
+- The Fly Creeper owns the sole launch planner, so every caller receives the
+  same minimum-apex guarantee. Elevated targets and terrain that make 35
+  blocks insufficient automatically produce a higher apex with at least four
+  blocks of planned terrain clearance.
+- Destination, horizontal heading, vertical-speed schedule, impact time, and
+  fuse schedule are fixed at launch. Later launch calls or velocity changes
+  cannot retarget or bend an active flight.
 - Receives a CMD-predicted impact time at launch. Its inherited 30-tick
   vanilla Creeper fuse is started on a calculated tick so detonation aligns
   with target arrival instead of always starting at the apex.
@@ -107,18 +109,16 @@ Features:
   away. Once the target is in range it stops navigation and holds position;
   it does not move closer before throwing.
 - Throws one payload at a time once within range.
-- Uses approximately 90% of the reference horizontal launch speed, making
-  the initial horizontal throw about 10% slower.
 - Releases each payload from `1.65` times the previous origin offset, which
   raises its initial launch position by approximately 65%.
-- Calculates horizontal velocity from a discrete estimate of Minecraft's
-  gravity/drag flight time to the target.
-- Uses that same flight simulation to predict the payload's hit tick.
+- Delegates all trajectory selection to the Fly Creeper's global high-arc
+  planner, then uses that plan's discrete gravity/drag simulation to predict
+  the payload's hit tick.
 - Preserves the inherited 30-tick Creeper fuse and schedules ignition at
   `max(1, predicted hit tick - 30 + 1)`; the final `+1` compensates for
   Minecraft advancing the fuse before that tick's AI/movement.
 - Assigns the target and fuse schedule before release; the payload keeps
-  gravity enabled, crosses its apex, descends, corrects horizontally, and
+  gravity enabled, crosses its apex, follows its immutable course, and
   detonates around the predicted target-arrival time.
 - Continues until both carried Fly Creepers have been thrown.
 - Spawns naturally anywhere a vanilla Creeper is in the biome spawn table,
@@ -128,20 +128,19 @@ Features:
 
 1. The CMD Creeper detaches one carried Fly Creeper and assigns the Villager
    or village destination.
-2. The payload receives high upward speed plus distance-adjusted horizontal
-   speed, while the same discrete gravity/drag simulation predicts its hit
-   time.
+2. The Fly Creeper creates one immutable launch plan with an apex at least 35
+   blocks above release, raising it further for elevated targets or terrain.
+   The same discrete gravity/drag simulation predicts its hit time.
 3. Minecraft gravity and drag produce the climb and curved transition over
    the apex.
 4. The payload starts its inherited 30-tick fuse on the prediction-derived
-   ignition tick, preserves its natural vertical fall, and applies bounded
-   horizontal guidance during descent.
+   ignition tick and follows the launch-time horizontal and vertical schedule
+   without in-flight guidance or retargeting.
 5. It reaches and detonates in the destination area. The automated test
-   requires a horizontal-speed multiplier of `0.86`-`0.91`, a launch-origin
-   multiplier of `1.64`-`1.66`, an actual apex within `0.75` blocks of the
-   raised prediction, a closest target distance of no more than two blocks,
-   target contact within three ticks of prediction, and detonation within two
-   ticks of prediction.
+   requires an actual apex within `0.75` blocks of the plan and never below
+   35 blocks, a closest target distance of no more than two blocks, target
+   contact within three ticks of prediction, detonation within two ticks, and
+   uninterrupted trail emission through the descent.
 
 ## Summon Creeper
 
@@ -305,13 +304,13 @@ changing the machine-wide Java configuration.
 After a build, the distributable mod is:
 
 ```text
-build/libs/shiros-test-mod-1.0.4-beta.jar
+build/libs/shiros-test-mod-1.0.5-beta.jar
 ```
 
 The matching source archive is:
 
 ```text
-build/libs/shiros-test-mod-1.0.4-beta-sources.jar
+build/libs/shiros-test-mod-1.0.5-beta-sources.jar
 ```
 
 ## Real-environment acceptance design
@@ -323,20 +322,21 @@ The test plan uses Minecraft itself rather than mocks.
 | Registration and eggs | Dedicated GameTest server | All three types are monsters; all three eggs resolve to the right type; Fly/CMD placement and heightmap equal vanilla Creeper. |
 | Natural spawn parity | Dedicated GameTest server | For every biome with a vanilla Creeper, the Fly and CMD entries have the same weight, minimum group, and maximum group. |
 | CMD capacity, helmet, and range hold | Dedicated GameTest server | A created CMD wears chainmail, has exactly two Elytra-equipped Fly passengers, rejects a third, and records zero approach requests while its target starts inside the 40-block throw range. |
-| Slower, higher CMD launch | Dedicated GameTest server | Both payloads use a `0.86`-`0.91` horizontal-speed multiplier and a `1.64`-`1.66` launch-origin multiplier, preserve gravity, cross the raised predicted apex, and arrive within two blocks of the target. |
-| Silent continuous rainbow trail | Dedicated and visible client GameTests | Autonomous and CMD takeoffs trigger once and record exactly one launch sound. The configured duration is 80 ticks; both thrown payloads emit colored particles on every active trail tick, cover all seven color phases, and the real-client arc frame visibly shows the long multicolor trail. |
+| Global high-arc launch invariant | Dedicated GameTest server | Real CMD capture/throws plus zero-distance, short, diagonal, 90-block, elevated-target, lowered-target, elevated-origin, and 48-block-ridge launches all rise at least 35 blocks. Elevated targets and the ridge force higher plans with terrain clearance. |
+| Fixed launch course | Dedicated GameTest server | A second launch request plus horizontal and vertical velocity disturbance cannot change the stored destination, initial velocity, heading, or gravity schedule. |
+| Silent continuous rainbow trail | Dedicated and visible client GameTests | Autonomous and CMD takeoffs trigger once and record exactly one launch sound. Both payloads emit colored particles without a one-tick gap through the latter half and complete descent, cover all seven color phases, and the real-client descent frame visibly shows the multicolor trail. |
 | Prediction-timed ballistic attack | Dedicated GameTest server | A nearby Villager is acquired and both payloads are thrown. Each receives the derived ignition schedule, reaches within 2 blocks and within 3 ticks of its hit prediction, then detonates within 2 ticks. |
 | Fly attack | Dedicated GameTest server | A Fly Creeper acquires a Villager, becomes airborne, enters a dive, arms its fuse, and is removed by its completed explosion. |
 | Summon Creeper | Dedicated GameTest server | A gold-helmeted Summon Creeper triggers exactly one visual lightning bolt, produces three Fly Creepers at 10/20/30 seconds, and produces one fully loaded CMD Creeper at 30 seconds. |
 | Obsidian and bedrock | Dedicated GameTest server | At maximal test power, every Creeper-sourced calculator explicitly vetoes Obsidian while allowing dirt. Real vanilla, Fly, CMD, and Summon Creeper explosions then leave Obsidian/bedrock intact while destroying at least one dirt control block. |
 | Village fallback | Dedicated GameTest server | With the maximum legal 128-block GameTest padding and no Villager inside the explicit 128-block query, both types acquire a real Bell village POI; the Fly destination equals the Bell position. |
 | Client synchronization | Visible integrated-server client | Server and client each see 3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, and at least 1 Villager in the staged scene. |
-| Rendering and live arc | Visible integrated-server client | Vanilla Creeper skins, Elytra wings, chainmail/golden helmets, carrier payloads, names, and the Villager render without model/resource exceptions. Server-side assertions verify the rainbow phases, slower/higher launch, predicted schedule, airborne descent, and target contact; screenshots capture the static scene, takeoff, multicolor arc, and timed explosion. |
+| Rendering and live arc | Visible integrated-server client | Vanilla Creeper skins, Elytra wings, chainmail/golden helmets, carrier payloads, names, and the Villager render without model/resource exceptions. Server-side assertions verify the rainbow phases, 35-block minimum, latter-half trail continuity, predicted schedule, airborne descent, and target contact; screenshots capture the static scene, takeoff, multicolor arc, and timed explosion. |
 
 Latest verified results on 2026-07-25:
 
 - `build`: **PASS**
-- Server GameTests: **PASS — 7/7 registered tests**
+- Server GameTests: **PASS — 8/8 registered tests**
 - Visible client GameTest: **PASS**
 - Trail inspection: **PASS — long, continuous, visible multicolor arc**
 - Visible client counts: **3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, 1 Villager**
@@ -344,7 +344,7 @@ Latest verified results on 2026-07-25:
   `build/client-gametest/screenshots/0000_shiros-test-mod-entity-scene.png`
 - Initial firework takeoff:
   `build/client-gametest/screenshots/0001_shiros-test-mod-firework-takeoff.png`
-- Slower/higher ballistic arc and full rainbow trace:
+- Fixed high ballistic arc and latter-half rainbow trace:
   `build/client-gametest/screenshots/0002_shiros-test-mod-ballistic-arc.png`
 - Prediction-timed detonation:
   `build/client-gametest/screenshots/0003_shiros-test-mod-ballistic-impact.png`
@@ -366,9 +366,9 @@ Use a disposable Hard-difficulty world because the mobs explode:
 3. Place a CMD Creeper with its egg and visually confirm its chainmail helmet
    and two Fly passengers.
 4. Put its target inside 40 blocks and confirm it holds position while
-   throwing. Verify that each payload starts about 10% slower horizontally,
-   releases about 65% higher, plays one launch sound, leaves a silent
-   three-second-plus rainbow trace, and explodes as it reaches the target area.
+   throwing. Verify that each payload rises at least 35 blocks above release,
+   plays one launch sound, leaves an uninterrupted silent rainbow trace for
+   the entire ascent and descent, and explodes as it reaches the target area.
 5. Place a Summon Creeper with its egg. Confirm its golden helmet and
    visual-only lightning, then wait 30 seconds for three timed Fly Creepers
    and one fully loaded CMD Creeper.
@@ -417,6 +417,8 @@ All dates are local device dates.
 | 2026-07-25 | Published the current feature set as stable version `1.0.3` from the `beta` branch. |
 | 2026-07-25 | Replaced repeated full firework explosions with silent every-tick colored trail particles, added exact-one launch-sound telemetry/assertions, added a Creeper-specific Obsidian veto mixin, and passed all 7 server GameTests plus the visible integrated-client test. |
 | 2026-07-25 | Published the verified sound, trail, and Obsidian fixes as the `1.0.4-beta` prerelease. |
+| 2026-07-25 | Replaced the 80-tick trail cap with flight-lifetime emission and centralized every payload launch in a terrain-aware, immutable ballistic planner with a global 35-block minimum apex; all 8 server GameTests and the visible client test passed. |
+| 2026-07-25 | Published the verified flight-long trail and global high-arc invariant as the `1.0.5-beta` prerelease from `beta`. |
 
 For the device-level audit trail, including intentions and failed test
 iterations, see [DEVICE_ACTIONS.md](DEVICE_ACTIONS.md).

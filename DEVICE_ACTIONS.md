@@ -14,17 +14,17 @@ Create and validate a Minecraft 26.2 Fabric mod with:
   flies, dives, and explodes as a bomb.
 - A naturally spawning **CMD Creeper** that carries no more than two Fly
   Creepers, spawns with two, and throws them toward a village or Villager in
-  gravity-driven curves that start approximately 10% slower horizontally and
-  from an approximately 65%-higher release origin.
+  immutable, terrain-aware gravity-driven curves that always rise at least 35
+  blocks above release and automatically rise higher when required.
 - A **Summon Creeper** with a golden helmet and spawn egg that produces a
   visual lightning strike when created, summons one Fly Creeper every 10
   seconds, and summons one fully loaded CMD Creeper every 30 seconds.
 - A spawn egg for each custom type.
 - The same natural-spawn requirements, biome coverage, weight, and group size
   as the vanilla Creeper for Fly and CMD Creepers.
-- Vanilla chainmail/golden helmet visuals, an at-least-three-second
-  seven-color Fly firework trace, and explosion verification proving that
-  obsidian and bedrock survive vanilla and custom Creepers.
+- Vanilla chainmail/golden helmet visuals, a flight-long seven-color Fly
+  firework trace with one launch sound, and explosion verification proving
+  that obsidian and bedrock survive vanilla and custom Creepers.
 - Vanilla textures/assets wherever possible.
 - A real Minecraft server behavior suite and a visible client render test.
 - Complete feature and implementation-timeline documentation in `README.md`.
@@ -297,9 +297,9 @@ was performed.
 - Dedicated server: **PASS — 7/7 registered tests**
 - Visible integrated client: **PASS**
 - Current binary:
-  `build/libs/shiros-test-mod-1.0.4-beta.jar`
+  `build/libs/shiros-test-mod-1.0.5-beta.jar`
 - Current sources:
-  `build/libs/shiros-test-mod-1.0.4-beta-sources.jar`
+  `build/libs/shiros-test-mod-1.0.5-beta-sources.jar`
 - Machine-readable server report:
   `build/gametest-results.xml`
 - Current visible evidence:
@@ -317,7 +317,7 @@ Expected non-blocking development-client messages remain:
 None caused a gameplay assertion failure, renderer/resource failure, network
 disconnect, or nonzero exit in the accepted final run.
 
-The exact current `1.0.4-beta` working tree is good to go for Minecraft 26.2
+The exact current `1.0.5-beta` working tree is good to go for Minecraft 26.2
 local development and testing. It contains the stable `1.0.3` gameplay feature
 set plus the silent continuous trail and explicit Creeper-sourced Obsidian
 protection fixes.
@@ -343,3 +343,14 @@ protection fixes.
 | 17:02–17:03 | Increased only the multi-Creeper arena allowance to 80 ticks, added unfinished-entity diagnostics, and reran the dedicated suite. | Remove timing flakiness without weakening behavioral assertions. | **PASS — all 7 registered required GameTests passed.** |
 | 17:03–17:04 | Ran the visible integrated-client GameTest and inspected the refreshed takeoff and ballistic-arc screenshots at original resolution. | Verify actual client synchronization, silent-particle trail rendering, color continuity, and existing entity/trajectory visuals. | **PASS — client test exited successfully; screenshots show a long continuous white-core trail with distinct red/orange/yellow/green/cyan color segments.** |
 | 17:17–17:20 | Re-versioned the verified working tree as `1.0.4-beta`, rebuilt the distributable artifacts, reran both real Minecraft suites, pushed `main`, and published a GitHub prerelease. | Deliver the completed fixes without replacing the stable `v1.0.3` release. | Build, all 7 server GameTests, visible client GameTest, release tag, and asset metadata were verified. |
+
+## 2026-07-25 global high-arc invariant and flight-long trail
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 17:36–17:42 | Traced every Fly Creeper launch entry point, the CMD capture/throw path, ballistic tick logic, and trail lifecycle. | Find the shared cause of ground-skimming selections, in-flight course changes, and the trail ending during long flights. | Confirmed CMD owned the only production calculation, Fly reapplied target guidance every tick, and trail emission was hard-capped at 80 ticks. |
+| 17:42–17:52 | Moved trajectory planning into `FlyCreeper`, added a 35-block minimum apex plus automatic elevated-target/terrain raising, fixed the complete horizontal and vertical schedule at launch, rejected replanning during active flight, and made trail emission follow flight completion instead of a timer. | Enforce one global invariant for every direct or CMD launch and keep the visual trail alive through the latter half. | Compilation passed; iterative server runs corrected a no-AI test setup, exact floating-point boundary reporting, and long-distance chunk ticking. |
+| 17:52–18:03 | Added and ran the real CMD capture test plus a direct-launch matrix covering zero/short/diagonal/90-block distances, high and low targets, elevated origin, a 48-block ridge, replanning, and horizontal/vertical velocity disturbance. | Prove low, flat, ground-skimming, terrain-clipping, and mid-flight course changes cannot be selected. | **PASS — all 8 required dedicated-server GameTests passed.** Every measured arc reached at least 35 blocks; the high-target and ridge cases automatically selected higher plans; every trail had a maximum emission gap of one tick. |
+| 17:54–18:04 | Updated the visible integrated-client test to wait for a true latter-half descent, assert the active no-gap trail there, capture all four frames, and inspect the arc screenshot at original resolution. | Verify actual rendered continuity rather than relying only on server telemetry. | **PASS — integrated-client test exited successfully.** The latter-half arc frame visibly shows a continuous white-core, multicolor trail; exact-one launch sound, targeting, fuse prediction, contact, and rendering checks also passed. |
+| 18:02–18:04 | Ran a clean full build, the final server suite, and the final client suite after locking both velocity axes. | Validate the exact final source state. | **PASS — build successful, server 8/8, client successful.** Expected offline Mojang/Realms, anisotropic-filtering, and empty client-resource warnings remained non-blocking. |
+| 18:24–18:27 | Re-versioned the verified update as `1.0.5-beta`, rebuilt it, reran both real Minecraft suites, advanced `beta`, and published the GitHub prerelease with binary and sources. | Deliver the completed flight invariant without updating remote `main`. | **PASS — clean build, server 8/8, visible client test, beta push, prerelease metadata, and both uploaded assets were verified.** |
