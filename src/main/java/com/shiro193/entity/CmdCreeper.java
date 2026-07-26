@@ -88,7 +88,9 @@ public class CmdCreeper extends Creeper {
 
 	@Override
 	protected boolean canAddPassenger(Entity passenger) {
-		return passenger instanceof FlyCreeper && this.getPayloadCount() < MAX_PAYLOAD;
+		return passenger instanceof FlyCreeper payload
+			&& payload.canBeLoadedAsPayload()
+			&& this.getPayloadCount() < MAX_PAYLOAD;
 	}
 
 	@Override
@@ -97,7 +99,9 @@ public class CmdCreeper extends Creeper {
 	}
 
 	public boolean tryLoad(FlyCreeper payload) {
-		return this.getPayloadCount() < MAX_PAYLOAD && payload.startRiding(this);
+		return payload.canBeLoadedAsPayload()
+			&& this.getPayloadCount() < MAX_PAYLOAD
+			&& payload.startRiding(this);
 	}
 
 	public int getPayloadCount() {

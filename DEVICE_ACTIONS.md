@@ -297,9 +297,9 @@ was performed.
 - Dedicated server: **PASS — 7/7 registered tests**
 - Visible integrated client: **PASS**
 - Current binary:
-  `build/libs/shiros-test-mod-1.0.5.1-beta.jar`
+  `build/libs/shiros-test-mod-1.0.5.2-beta.jar`
 - Current sources:
-  `build/libs/shiros-test-mod-1.0.5.1-beta-sources.jar`
+  `build/libs/shiros-test-mod-1.0.5.2-beta-sources.jar`
 - Machine-readable server report:
   `build/gametest-results.xml`
 - Current visible evidence:
@@ -317,7 +317,7 @@ Expected non-blocking development-client messages remain:
 None caused a gameplay assertion failure, renderer/resource failure, network
 disconnect, or nonzero exit in the accepted final run.
 
-The exact current `1.0.5.1-beta` working tree is good to go for Minecraft 26.2
+The exact current `1.0.5.2-beta` working tree is good to go for Minecraft 26.2
 local development and testing. It contains the stable `1.0.3` gameplay feature
 set plus the silent continuous trail and explicit Creeper-sourced Obsidian
 protection fixes.
@@ -363,3 +363,22 @@ protection fixes.
 | 18:40–18:43 | Changed launch planning to return a bounded failure result, added an overhead takeoff check and bounded numerical-planning failures, and made CMD preflight its explicit launch origin before detaching its passenger. | Preserve the global high-arc/terrain-clearance invariant without allowing an impossible launch to crash the server or degrade to a low path. | An impossible launch is now refused atomically: both Fly Creepers remain attached, no launch sound or trail starts, the throw count remains unchanged, and the AI waits 40 ticks before retrying. |
 | 18:41–18:44 | Added a dedicated regression that reproduces the report's approximately 24.5-block horizontal and 66.6-block vertical target offset under a solid overhead column; corrected the first implementation after the test caught unreliable same-tick passenger restoration. | Verify both crash prevention and passenger-state integrity under the reported conditions. | **PASS — all 9 required dedicated-server GameTests passed.** The regression confirms refusal, two retained passengers, zero launched payloads, and zero completed throws. |
 | 18:44–18:45 | Ran the visible integrated-client GameTest after the server regression. | Ensure the crash fix preserves the previous launch sound, continuous rainbow trail, fixed ballistic arc, target-contact, and rendering behavior. | **PASS — client test completed and refreshed all four screenshots.** |
+
+## 2026-07-25 intermittent flat flight and incomplete trail investigation
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 19:00–22:03 | Traced every launch entry point, passenger transition, ballistic tick, particle broadcast, client tracking path, and entity save field; added repeated CMD launches with disabled payload AI. | Reproduce the reported intermittent flat path instead of relying on planned-apex telemetry alone. | **Reproduced deterministically.** Vanilla `LivingEntity` skips position travel when `NoAI` is set, while the mod’s old ballistic scheduler continued advancing velocity/apex time. The plan reported a high arc even though position stayed flat. |
+| 19:00–22:09 | Inspected Minecraft 26.2 particle delivery and added recipient telemetry to the integrated-client test. | Find why server emission counters passed while the visible trail could still disappear. | Confirmed ordinary `ServerLevel.sendParticles` packets are delivered only within 32 blocks. A mandatory 35+ block apex therefore outran its own trail packets. The old tick order also skipped emission on the tick that marked flight complete. |
+| 22:03–22:44 | Synchronized active ballistic state, made launched movement effective independently of `NoAI`, persisted the complete immutable plan/trail state, required a 35-block and 0.5×distance apex plus a 1:1 initial climb slope, sampled terrain through the full non-landing path, and added bounded expiring tickets for every crossed chunk. | Enforce the high-arc invariant through disabled AI, save/reload, terrain, and chunk-boundary conditions without allowing a shallow fallback. | Flat NoAI launches, lost state after reload, and chunk-boundary pauses were eliminated. Oversized, obstructed, ignited, or already-launched payloads fail safely instead of degrading to a low arc. |
+| 22:03–23:38 | Iterated the expanded parallel GameTests and investigated repeated-run failures. | Distinguish production defects from test-harness timing and chunk coverage issues. | Repeated runs exposed diagonal bootstrap chunks missed by centerline sampling and an unrelated 80-tick explosion-arena timeout. Test corridors now receive a one-chunk bootstrap margin and remain loaded until server shutdown; the explosion allowance is 160 ticks with all behavioral assertions unchanged. |
+| 23:40–23:46 | Ran three independently bounded final dedicated-server suites. | Prove intermittent reliability across fresh server processes, entity IDs, tick ordering, and world placements. | **PASS — 3/3 runs, 33/33 GameTest executions, and 63/63 measured ballistic launches.** Each run included 12 repeated CMD payload launches, 8 direct matrix launches, and 1 mid-flight save/reload launch. |
+| 23:46–23:48 | Ran the final integrated-client test and inspected the refreshed ballistic-arc image at original resolution. | Verify real delivery and rendering beyond the former 32-block cutoff. | **PASS.** Every active trail tick had a player recipient, missed broadcasts stayed at zero, and the high descending Fly Creeper visibly retained a continuous colorful/firework trail. |
+
+## 2026-07-26 `1.0.5.2-beta` release validation
+
+| Local time | Device action | Intention | Result |
+|---|---|---|---|
+| 01:23–01:25 | Confirmed the local `beta` branch, authenticated GitHub account, remote repository, current `v1.0.5.1-beta` prerelease, and mixed working-tree scope. Updated the authoritative and current-documentation version references to `1.0.5.2-beta`. | Select the next unused beta version without including the unrelated `.gitignore` edit. | GitHub authentication for `Mayu163` passed; `1.0.5.2-beta` was available and all current artifact references were synchronized. |
+| 01:25–01:29 | Ran the clean build and a fresh full dedicated-server suite. The first suite exposed only the existing explosion arena's 120-tick timing ceiling when one already-primed Summon Creeper completed at tick 122; increased that test-only ceiling to 160 without changing any block-damage assertion and reran it. | Validate the exact release version and retain meaningful Obsidian/control-block checks under variable parallel-test scheduling. | **PASS — clean build and final 11/11 GameTests.** Every ballistic/trail test passed in both runs; the corrected full rerun also passed the unchanged Obsidian, bedrock, ordinary-block-damage, targeting, and summoning assertions. |
+| 01:32–01:33 | Ran the integrated-client GameTest and inspected its refreshed high-arc screenshot at original resolution. | Validate real rendering and long-distance trail delivery for the release version. | **PASS.** All four scripted screenshots were refreshed; the arc image visibly shows the airborne Fly Creeper and continuous multicolor trail. Expected offline Mojang/Realms authentication warnings remained non-blocking. |

@@ -250,8 +250,15 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 				if (payload.getTakeoffColorTrailTicksEmitted() != payload.getTakeoffFireworkBurstsEmitted()
 					|| payload.getTakeoffColorParticlesEmitted()
 						!= payload.getTakeoffColorTrailTicksEmitted()
-							* FlyCreeper.TAKEOFF_COLOR_PARTICLES_PER_TICK) {
-					throw new AssertionError("Visible payload did not emit silent colored trail particles every active tick.");
+							* FlyCreeper.TAKEOFF_COLOR_PARTICLES_PER_TICK
+					|| payload.getTrailBroadcastTicksWithPlayers() != payload.getTakeoffColorTrailTicksEmitted()
+					|| payload.getTrailBroadcastTicksWithoutRecipients() != 0) {
+					throw new AssertionError(
+						"Visible payload did not deliver silent colored trail particles on every active tick "
+							+ "(trailTicks=" + payload.getTakeoffColorTrailTicksEmitted()
+							+ ", broadcastTicks=" + payload.getTrailBroadcastTicksWithPlayers()
+							+ ", missedBroadcasts=" + payload.getTrailBroadcastTicksWithoutRecipients() + ")."
+					);
 				}
 				if (payload.getPredictedImpactTicks() <= 0
 					|| payload.getScheduledFuseIgnitionTick()
@@ -312,10 +319,13 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 					.orElseThrow(() -> new AssertionError("The descending Fly Creeper disappeared before arc validation."));
 				if (payload.getPlannedApexHeight() < FlyCreeper.MINIMUM_LAUNCH_APEX_HEIGHT
 					|| payload.getMaximumLaunchHeight() < payload.getPredictedTrajectoryApexHeight() - 0.75
+					|| payload.getInitialAscentSlope() < FlyCreeper.MINIMUM_INITIAL_ASCENT_SLOPE
 					|| !payload.hasDescendedUnderGravity()
 					|| !payload.isTakeoffFireworkActive()
 					|| payload.getTakeoffColorTrailTicksEmitted() <= payload.getPredictedImpactTicks() / 2
 					|| payload.getMaximumTrailEmissionGap() > 1
+					|| payload.getTrailBroadcastTicksWithPlayers() != payload.getTakeoffColorTrailTicksEmitted()
+					|| payload.getTrailBroadcastTicksWithoutRecipients() != 0
 					|| payload.isNoGravity()) {
 					throw new AssertionError(
 						"Visible payload did not complete its fixed high gravity arc (height="
@@ -323,6 +333,9 @@ public final class ShiroClientGameTest implements FabricClientGameTest {
 							+ ", predicted=" + payload.getPredictedTrajectoryApexHeight()
 							+ ", trailTicks=" + payload.getTakeoffColorTrailTicksEmitted()
 							+ ", trailGap=" + payload.getMaximumTrailEmissionGap()
+							+ ", ascentSlope=" + payload.getInitialAscentSlope()
+							+ ", broadcastTicks=" + payload.getTrailBroadcastTicksWithPlayers()
+							+ ", missedBroadcasts=" + payload.getTrailBroadcastTicksWithoutRecipients()
 							+ ", phase=" + payload.getFlightPhase() + ")."
 					);
 				}

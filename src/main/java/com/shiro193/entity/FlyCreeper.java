@@ -1,9 +1,17 @@
 package com.shiro193.entity;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
@@ -23,18 +31,27 @@ import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.storage.ValueInput;
+import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 public class FlyCreeper extends Creeper {
+	private static final EntityDataAccessor<Boolean> DATA_BALLISTIC_FLIGHT_ACTIVE = SynchedEntityData.defineId(
+		FlyCreeper.class,
+		EntityDataSerializers.BOOLEAN
+	);
 	public static final int TARGET_RANGE = 128;
 	private static final double DIVE_START_DISTANCE = 15.0;
 	private static final double CRUISE_SPEED = 0.78;
 	private static final double DIVE_SPEED = 1.18;
 	private static final double BALLISTIC_IMPACT_RADIUS = 2.0;
 	public static final double MINIMUM_LAUNCH_APEX_HEIGHT = 35.0;
+	public static final double MINIMUM_APEX_TO_DISTANCE_RATIO = 0.5;
+	public static final double MINIMUM_INITIAL_ASCENT_SLOPE = 1.0;
 	public static final double TERRAIN_CLEARANCE = 4.0;
 	public static final int TAKEOFF_FIREWORK_PRIMARY_PARTICLES_PER_TICK = 4;
 	public static final int TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK = 3;
@@ -55,6 +72,9 @@ public class FlyCreeper extends Creeper {
 	private static final int MAX_BALLISTIC_FLIGHT_TICKS = 600;
 	private static final double TERRAIN_PLANNING_INCREMENT = 5.0;
 	private static final double TARGET_HEIGHT_CLEARANCE = 8.0;
+	private static final int BALLISTIC_CHUNK_TICKET_RADIUS = 1;
+	private static final int BALLISTIC_CHUNK_TICKET_REFRESH_TICKS = 20;
+	private static final int MAX_BALLISTIC_TICKET_CHUNKS = 64;
 
 	private VillageTargeting.@Nullable Target villageTarget;
 	private @Nullable Vec3 forcedDestination;
@@ -92,6 +112,11 @@ public class FlyCreeper extends Creeper {
 	private int takeoffFireworkColorMask;
 	private long lastTrailEmissionGameTick = Long.MIN_VALUE;
 	private int maximumTrailEmissionGap;
+	private int trailBroadcastTicksWithPlayers;
+	private int trailBroadcastTicksWithoutRecipients;
+	private String lastLaunchRejectionReason = "NONE";
+	private int ballisticChunkTicketRefreshes;
+	private List<ChunkPos> ballisticTicketChunks = List.of();
 
 	public FlyCreeper(EntityType<? extends FlyCreeper> type, Level level) {
 		super(type, level);
@@ -100,6 +125,17 @@ public class FlyCreeper extends Creeper {
 
 	public static AttributeSupplier.Builder createAttributes() {
 		return Creeper.createAttributes().add(Attributes.FOLLOW_RANGE, TARGET_RANGE);
+	}
+
+	@Override
+	protected void defineSynchedData(SynchedEntityData.Builder entityData) {
+		super.defineSynchedData(entityData);
+		entityData.define(DATA_BALLISTIC_FLIGHT_ACTIVE, false);
+	}
+
+	@Override
+	public boolean isEffectiveAi() {
+		return this.entityData.get(DATA_BALLISTIC_FLIGHT_ACTIVE) || super.isEffectiveAi();
 	}
 
 	@Override
@@ -122,11 +158,17 @@ public class FlyCreeper extends Creeper {
 	}
 
 	private boolean launchFrom(Vec3 launchOrigin, Vec3 destination, boolean relocateToLaunchOrigin) {
-		if (this.launched && !this.launchFlightComplete) {
+		this.lastLaunchRejectionReason = "NONE";
+		if (this.launched || this.isIgnited()) {
+			this.lastLaunchRejectionReason = "ACTIVE_OR_IGNITED";
 			return false;
 		}
 		LaunchPlan launchPlan = this.createLaunchPlan(launchOrigin, destination);
 		if (launchPlan == null) {
+			return false;
+		}
+		if (!this.prepareBallisticChunkCorridor(launchOrigin, destination)) {
+			this.lastLaunchRejectionReason = "FLIGHT_CORRIDOR_TOO_LARGE";
 			return false;
 		}
 		if (this.isPassenger()) {
@@ -135,8 +177,10 @@ public class FlyCreeper extends Creeper {
 		if (relocateToLaunchOrigin) {
 			this.snapTo(launchOrigin.x, launchOrigin.y, launchOrigin.z, this.getYRot(), -10.0F);
 		}
+		this.resetLaunchEffects();
 		this.forcedDestination = destination;
 		this.launched = true;
+		this.entityData.set(DATA_BALLISTIC_FLIGHT_ACTIVE, true);
 		this.flightPhase = FlightPhase.BALLISTIC_ASCENT;
 		this.everAirborne = true;
 		this.everDived = false;
@@ -171,8 +215,28 @@ public class FlyCreeper extends Creeper {
 		this.getNavigation().stop();
 		this.setNoGravity(false);
 		this.setDeltaMovement(this.initialLaunchVelocity);
+		this.refreshBallisticChunkTicket();
 		this.triggerTakeoffFirework();
 		return true;
+	}
+
+	public boolean canBeLoadedAsPayload() {
+		return this.isAlive() && !this.launched && !this.isIgnited();
+	}
+
+	private void resetLaunchEffects() {
+		this.takeoffFireworkEffectsTriggered = 0;
+		this.takeoffFireworkLaunchSoundsPlayed = 0;
+		this.takeoffFireworkBurstsEmitted = 0;
+		this.takeoffFireworkParticlesEmitted = 0;
+		this.takeoffColorTrailTicksEmitted = 0;
+		this.takeoffColorParticlesEmitted = 0;
+		this.takeoffFireworkColorMask = 0;
+		this.lastTrailEmissionGameTick = Long.MIN_VALUE;
+		this.maximumTrailEmissionGap = 0;
+		this.trailBroadcastTicksWithPlayers = 0;
+		this.trailBroadcastTicksWithoutRecipients = 0;
+		this.ballisticChunkTicketRefreshes = 0;
 	}
 
 	public FlightPhase getFlightPhase() {
@@ -315,6 +379,28 @@ public class FlyCreeper extends Creeper {
 		return this.maximumTrailEmissionGap;
 	}
 
+	public int getTrailBroadcastTicksWithPlayers() {
+		return this.trailBroadcastTicksWithPlayers;
+	}
+
+	public int getTrailBroadcastTicksWithoutRecipients() {
+		return this.trailBroadcastTicksWithoutRecipients;
+	}
+
+	public double getInitialAscentSlope() {
+		return this.ballisticHorizontalSpeed < 1.0E-12
+			? Double.POSITIVE_INFINITY
+			: this.initialLaunchVelocity.y / this.ballisticHorizontalSpeed;
+	}
+
+	public String getLastLaunchRejectionReason() {
+		return this.lastLaunchRejectionReason;
+	}
+
+	public int getBallisticChunkTicketRefreshes() {
+		return this.ballisticChunkTicketRefreshes;
+	}
+
 	public @Nullable Vec3 getAttackDestination() {
 		if (this.forcedDestination != null) {
 			return this.forcedDestination;
@@ -331,6 +417,9 @@ public class FlyCreeper extends Creeper {
 	@Override
 	public void tick() {
 		if (this.launched && !this.launchFlightComplete) {
+			if (this.ballisticLaunchTicks % BALLISTIC_CHUNK_TICKET_REFRESH_TICKS == 0) {
+				this.refreshBallisticChunkTicket();
+			}
 			this.setDeltaMovement(
 				this.fixedHorizontalVelocity.x,
 				this.fixedVerticalVelocity,
@@ -343,9 +432,54 @@ public class FlyCreeper extends Creeper {
 			this.detonatedAtLaunchTick = this.ballisticLaunchTicks;
 		}
 		if (this.launched && !this.launchFlightComplete && !this.isRemoved()) {
+			this.tickTakeoffFirework();
 			this.tickBallisticFlight();
+		} else {
+			this.tickTakeoffFirework();
 		}
-		this.tickTakeoffFirework();
+	}
+
+	private void refreshBallisticChunkTicket() {
+		if (this.level() instanceof ServerLevel serverLevel) {
+			for (ChunkPos chunk : this.ballisticTicketChunks) {
+				serverLevel.getChunkSource().addTicketWithRadius(
+					TicketType.ENDER_PEARL,
+					chunk,
+					BALLISTIC_CHUNK_TICKET_RADIUS
+				);
+			}
+			this.ballisticChunkTicketRefreshes++;
+		}
+	}
+
+	private boolean prepareBallisticChunkCorridor(Vec3 origin, Vec3 destination) {
+		if (!(this.level() instanceof ServerLevel serverLevel)) {
+			return true;
+		}
+		double horizontalDistance = Math.sqrt(
+			Mth.square(destination.x - origin.x) + Mth.square(destination.z - origin.z)
+		);
+		int samples = Math.max(1, (int)Math.ceil(horizontalDistance));
+		Set<ChunkPos> chunks = new LinkedHashSet<>();
+		for (int sample = 0; sample <= samples; sample++) {
+			double progress = (double)sample / samples;
+			int blockX = Mth.floor(Mth.lerp(progress, origin.x, destination.x));
+			int blockZ = Mth.floor(Mth.lerp(progress, origin.z, destination.z));
+			chunks.add(new ChunkPos(blockX >> 4, blockZ >> 4));
+			if (chunks.size() > MAX_BALLISTIC_TICKET_CHUNKS) {
+				return false;
+			}
+		}
+		this.ballisticTicketChunks = List.copyOf(new ArrayList<>(chunks));
+		for (ChunkPos chunk : this.ballisticTicketChunks) {
+			serverLevel.getChunkSource().addTicketWithRadius(
+				TicketType.ENDER_PEARL,
+				chunk,
+				BALLISTIC_CHUNK_TICKET_RADIUS
+			);
+			serverLevel.getChunk(chunk.x(), chunk.z());
+		}
+		return true;
 	}
 
 	private void triggerTakeoffFirework() {
@@ -371,8 +505,10 @@ public class FlyCreeper extends Creeper {
 			? movement.normalize().scale(-0.65)
 			: new Vec3(0.0, -0.65, 0.0);
 		Vec3 emitter = this.position().add(0.0, this.getBbHeight() * 0.35, 0.0).add(trailOffset);
-		serverLevel.sendParticles(
+		int recipients = serverLevel.sendParticles(
 			ParticleTypes.FIREWORK,
+			true,
+			true,
 			emitter.x,
 			emitter.y,
 			emitter.z,
@@ -383,8 +519,10 @@ public class FlyCreeper extends Creeper {
 			0.035
 		);
 		Vec3 rearEmitter = emitter.add(trailOffset.scale(0.8));
-		serverLevel.sendParticles(
+		recipients = Math.max(recipients, serverLevel.sendParticles(
 			ParticleTypes.FIREWORK,
+			true,
+			true,
 			rearEmitter.x,
 			rearEmitter.y,
 			rearEmitter.z,
@@ -393,15 +531,17 @@ public class FlyCreeper extends Creeper {
 			0.06,
 			0.06,
 			0.025
-		);
+		));
 		this.takeoffFireworkBurstsEmitted++;
 		this.takeoffFireworkParticlesEmitted += TAKEOFF_FIREWORK_PRIMARY_PARTICLES_PER_TICK
 			+ TAKEOFF_FIREWORK_TRAILING_PARTICLES_PER_TICK;
 		int elapsedTicks = this.takeoffColorTrailTicksEmitted;
 		int colorIndex = (elapsedTicks / TAKEOFF_COLOR_PHASE_DURATION_TICKS) % RAINBOW_FIREWORK_COLORS.length;
 		DustParticleOptions colorParticle = new DustParticleOptions(RAINBOW_FIREWORK_COLORS[colorIndex], 1.2F);
-		serverLevel.sendParticles(
+		recipients = Math.max(recipients, serverLevel.sendParticles(
 			colorParticle,
+			true,
+			true,
 			emitter.x,
 			emitter.y,
 			emitter.z,
@@ -410,9 +550,11 @@ public class FlyCreeper extends Creeper {
 			0.05,
 			0.05,
 			0.015
-		);
-		serverLevel.sendParticles(
+		));
+		recipients = Math.max(recipients, serverLevel.sendParticles(
 			colorParticle,
+			true,
+			true,
 			rearEmitter.x,
 			rearEmitter.y,
 			rearEmitter.z,
@@ -421,7 +563,7 @@ public class FlyCreeper extends Creeper {
 			0.04,
 			0.04,
 			0.01
-		);
+		));
 		this.takeoffColorTrailTicksEmitted++;
 		this.takeoffColorParticlesEmitted += TAKEOFF_COLOR_PARTICLES_PER_TICK;
 		this.takeoffFireworkColorMask |= 1 << colorIndex;
@@ -433,6 +575,12 @@ public class FlyCreeper extends Creeper {
 			);
 		}
 		this.lastTrailEmissionGameTick = gameTime;
+		if (!serverLevel.players().isEmpty()) {
+			this.trailBroadcastTicksWithPlayers++;
+			if (recipients == 0) {
+				this.trailBroadcastTicksWithoutRecipients++;
+			}
+		}
 	}
 
 	private boolean shouldEmitFlightTrail() {
@@ -452,12 +600,19 @@ public class FlyCreeper extends Creeper {
 			Mth.floor(origin.z)
 		);
 		if (takeoffSurfaceY > origin.y + this.getBbHeight() + 0.5) {
+			this.lastLaunchRejectionReason = "TAKEOFF_OBSTRUCTED";
 			return null;
 		}
 		double targetHeightOffset = destination.y - origin.y;
+		double horizontalDistance = Math.sqrt(
+			Mth.square(destination.x - origin.x) + Mth.square(destination.z - origin.z)
+		);
 		double minimumRequiredApex = Math.max(
 			MINIMUM_LAUNCH_APEX_HEIGHT,
-			targetHeightOffset + TARGET_HEIGHT_CLEARANCE
+			Math.max(
+				horizontalDistance * MINIMUM_APEX_TO_DISTANCE_RATIO,
+				targetHeightOffset + TARGET_HEIGHT_CLEARANCE
+			)
 		);
 		double candidateApex = minimumRequiredApex;
 		double minimumTerrainClearance = Double.POSITIVE_INFINITY;
@@ -466,11 +621,20 @@ public class FlyCreeper extends Creeper {
 		for (int attempt = 0; attempt < 64; attempt++) {
 			Double verticalSpeed = solveInitialVerticalSpeedForApex(candidateApex);
 			if (verticalSpeed == null) {
+				this.lastLaunchRejectionReason = "APEX_LIMIT";
 				return null;
 			}
 			int flightTicks = estimateBallisticFlightTicks(verticalSpeed, targetHeightOffset);
 			if (flightTicks < 1) {
+				this.lastLaunchRejectionReason = "FLIGHT_TIME_LIMIT";
 				return null;
+			}
+			double horizontalSpeed = horizontalDistance / flightTicks;
+			if (horizontalSpeed > 1.0E-12
+				&& verticalSpeed / horizontalSpeed < MINIMUM_INITIAL_ASCENT_SLOPE) {
+				terrainRaised = true;
+				candidateApex += TERRAIN_PLANNING_INCREMENT;
+				continue;
 			}
 			minimumTerrainClearance = this.estimateMinimumTerrainClearance(
 				origin,
@@ -499,6 +663,7 @@ public class FlyCreeper extends Creeper {
 			);
 		}
 
+		this.lastLaunchRejectionReason = "NO_CLEAR_HIGH_ARC";
 		return null;
 	}
 
@@ -521,12 +686,14 @@ public class FlyCreeper extends Creeper {
 			relativeY += verticalSpeed;
 			verticalSpeed = (verticalSpeed - BALLISTIC_GRAVITY) * BALLISTIC_VERTICAL_DRAG;
 			double progress = (double)tick / flightTicks;
-			if (progress < 0.05 || progress > 0.90) {
-				continue;
-			}
-
 			double x = Mth.lerp(progress, origin.x, destination.x);
 			double z = Mth.lerp(progress, origin.z, destination.z);
+			Vec3 predictedPosition = new Vec3(x, origin.y + relativeY, z);
+			double horizontalDistanceToTargetSqr = Mth.square(destination.x - x)
+				+ Mth.square(destination.z - z);
+			if (horizontalDistanceToTargetSqr <= TERRAIN_CLEARANCE * TERRAIN_CLEARANCE) {
+				break;
+			}
 			int terrainY = this.level().getHeight(
 				Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
 				Mth.floor(x),
@@ -645,6 +812,7 @@ public class FlyCreeper extends Creeper {
 		Vec3 target = this.forcedDestination;
 		if (target == null) {
 			this.launchFlightComplete = true;
+			this.entityData.set(DATA_BALLISTIC_FLIGHT_ACTIVE, false);
 			return;
 		}
 		this.setNoGravity(false);
@@ -688,13 +856,150 @@ public class FlyCreeper extends Creeper {
 				this.fuseIgnitedAtLaunchTick = this.ballisticLaunchTicks;
 			}
 			this.launchFlightComplete = true;
+			this.entityData.set(DATA_BALLISTIC_FLIGHT_ACTIVE, false);
 		} else if (
 			this.flightPhase == FlightPhase.BALLISTIC_DESCENT
 				&& this.onGround()
 				&& this.ballisticLaunchTicks > 2
 		) {
 			this.launchFlightComplete = true;
+			this.entityData.set(DATA_BALLISTIC_FLIGHT_ACTIVE, false);
 		}
+	}
+
+	@Override
+	protected void addAdditionalSaveData(ValueOutput output) {
+		super.addAdditionalSaveData(output);
+		output.putBoolean("FlyLaunchStatePresent", true);
+		output.putBoolean("FlyLaunched", this.launched);
+		output.putBoolean("FlyEverAirborne", this.everAirborne);
+		output.putBoolean("FlyEverDived", this.everDived);
+		output.putBoolean("FlyReachedApex", this.reachedBallisticApex);
+		output.putBoolean("FlyDescendedUnderGravity", this.descendedUnderGravity);
+		output.putBoolean("FlyReachedTarget", this.reachedLaunchTarget);
+		output.putBoolean("FlyLaunchComplete", this.launchFlightComplete);
+		output.putBoolean("FlyTerrainRaised", this.terrainRaisedTrajectory);
+		output.putString("FlyFlightPhase", this.flightPhase.name());
+		output.putBoolean("FlyHasDestination", this.forcedDestination != null);
+		if (this.forcedDestination != null) {
+			putVec3(output, "FlyDestination", this.forcedDestination);
+		}
+		putVec3(output, "FlyFixedHorizontalVelocity", this.fixedHorizontalVelocity);
+		putVec3(output, "FlyInitialLaunchVelocity", this.initialLaunchVelocity);
+		output.putDouble("FlyFixedVerticalVelocity", this.fixedVerticalVelocity);
+		output.putInt("FlyBallisticTicks", this.ballisticLaunchTicks);
+		output.putDouble("FlyLaunchStartY", this.launchStartY);
+		output.putDouble("FlyMaximumLaunchY", this.maximumLaunchY);
+		output.putDouble("FlyPlannedApex", this.plannedApexHeight);
+		output.putDouble("FlyPlannedTerrainClearance", this.plannedTerrainClearance);
+		output.putDouble("FlyClosestTargetDistanceSqr", this.closestLaunchTargetDistanceSqr);
+		output.putDouble("FlyInitialLaunchSpeed", this.initialLaunchSpeed);
+		output.putDouble("FlyHorizontalLaunchSpeed", this.ballisticHorizontalSpeed);
+		output.putInt("FlyPredictedImpactTicks", this.predictedImpactTicks);
+		output.putInt("FlyScheduledIgnitionTick", this.scheduledFuseIgnitionTick);
+		output.putInt("FlyFuseIgnitedTick", this.fuseIgnitedAtLaunchTick);
+		output.putInt("FlyTargetReachedTick", this.targetReachedAtLaunchTick);
+		output.putInt("FlyDetonatedTick", this.detonatedAtLaunchTick);
+		output.putInt("FlyTakeoffEffects", this.takeoffFireworkEffectsTriggered);
+		output.putInt("FlyTakeoffSounds", this.takeoffFireworkLaunchSoundsPlayed);
+		output.putInt("FlyTrailBursts", this.takeoffFireworkBurstsEmitted);
+		output.putInt("FlyTrailFireworkParticles", this.takeoffFireworkParticlesEmitted);
+		output.putInt("FlyTrailTicks", this.takeoffColorTrailTicksEmitted);
+		output.putInt("FlyTrailColorParticles", this.takeoffColorParticlesEmitted);
+		output.putInt("FlyTrailColorMask", this.takeoffFireworkColorMask);
+		output.putInt("FlyMaximumTrailGap", this.maximumTrailEmissionGap);
+		output.putInt("FlyBroadcastTicksWithPlayers", this.trailBroadcastTicksWithPlayers);
+		output.putInt("FlyBroadcastMisses", this.trailBroadcastTicksWithoutRecipients);
+		output.putInt("FlyChunkTicketRefreshes", this.ballisticChunkTicketRefreshes);
+	}
+
+	@Override
+	protected void readAdditionalSaveData(ValueInput input) {
+		super.readAdditionalSaveData(input);
+		if (!input.getBooleanOr("FlyLaunchStatePresent", false)) {
+			return;
+		}
+		this.launched = input.getBooleanOr("FlyLaunched", false);
+		this.everAirborne = input.getBooleanOr("FlyEverAirborne", false);
+		this.everDived = input.getBooleanOr("FlyEverDived", false);
+		this.reachedBallisticApex = input.getBooleanOr("FlyReachedApex", false);
+		this.descendedUnderGravity = input.getBooleanOr("FlyDescendedUnderGravity", false);
+		this.reachedLaunchTarget = input.getBooleanOr("FlyReachedTarget", false);
+		this.launchFlightComplete = input.getBooleanOr("FlyLaunchComplete", false);
+		this.terrainRaisedTrajectory = input.getBooleanOr("FlyTerrainRaised", false);
+		this.flightPhase = parseFlightPhase(input.getStringOr("FlyFlightPhase", FlightPhase.SEARCHING.name()));
+		this.forcedDestination = input.getBooleanOr("FlyHasDestination", false)
+			? readVec3(input, "FlyDestination")
+			: null;
+		this.fixedHorizontalVelocity = readVec3(input, "FlyFixedHorizontalVelocity");
+		this.initialLaunchVelocity = readVec3(input, "FlyInitialLaunchVelocity");
+		this.fixedVerticalVelocity = input.getDoubleOr("FlyFixedVerticalVelocity", 0.0);
+		this.ballisticLaunchTicks = input.getIntOr("FlyBallisticTicks", 0);
+		this.launchStartY = input.getDoubleOr("FlyLaunchStartY", this.getY());
+		this.maximumLaunchY = input.getDoubleOr("FlyMaximumLaunchY", this.getY());
+		this.plannedApexHeight = input.getDoubleOr("FlyPlannedApex", 0.0);
+		this.plannedTerrainClearance = input.getDoubleOr("FlyPlannedTerrainClearance", 0.0);
+		this.closestLaunchTargetDistanceSqr = input.getDoubleOr(
+			"FlyClosestTargetDistanceSqr",
+			Double.POSITIVE_INFINITY
+		);
+		this.initialLaunchSpeed = input.getDoubleOr("FlyInitialLaunchSpeed", 0.0);
+		this.ballisticHorizontalSpeed = input.getDoubleOr("FlyHorizontalLaunchSpeed", 0.0);
+		this.predictedImpactTicks = input.getIntOr("FlyPredictedImpactTicks", 0);
+		this.scheduledFuseIgnitionTick = input.getIntOr("FlyScheduledIgnitionTick", 0);
+		this.fuseIgnitedAtLaunchTick = input.getIntOr("FlyFuseIgnitedTick", -1);
+		this.targetReachedAtLaunchTick = input.getIntOr("FlyTargetReachedTick", -1);
+		this.detonatedAtLaunchTick = input.getIntOr("FlyDetonatedTick", -1);
+		this.takeoffFireworkEffectsTriggered = input.getIntOr("FlyTakeoffEffects", 0);
+		this.takeoffFireworkLaunchSoundsPlayed = input.getIntOr("FlyTakeoffSounds", 0);
+		this.takeoffFireworkBurstsEmitted = input.getIntOr("FlyTrailBursts", 0);
+		this.takeoffFireworkParticlesEmitted = input.getIntOr("FlyTrailFireworkParticles", 0);
+		this.takeoffColorTrailTicksEmitted = input.getIntOr("FlyTrailTicks", 0);
+		this.takeoffColorParticlesEmitted = input.getIntOr("FlyTrailColorParticles", 0);
+		this.takeoffFireworkColorMask = input.getIntOr("FlyTrailColorMask", 0);
+		this.maximumTrailEmissionGap = input.getIntOr("FlyMaximumTrailGap", 0);
+		this.trailBroadcastTicksWithPlayers = input.getIntOr("FlyBroadcastTicksWithPlayers", 0);
+		this.trailBroadcastTicksWithoutRecipients = input.getIntOr("FlyBroadcastMisses", 0);
+		this.ballisticChunkTicketRefreshes = input.getIntOr("FlyChunkTicketRefreshes", 0);
+		this.lastTrailEmissionGameTick = Long.MIN_VALUE;
+		if (this.launched && !this.launchFlightComplete) {
+			this.entityData.set(DATA_BALLISTIC_FLIGHT_ACTIVE, true);
+			this.setNoGravity(false);
+			this.setDeltaMovement(
+				this.fixedHorizontalVelocity.x,
+				this.fixedVerticalVelocity,
+				this.fixedHorizontalVelocity.z
+			);
+			if (this.forcedDestination != null) {
+				this.prepareBallisticChunkCorridor(this.position(), this.forcedDestination);
+			}
+			this.refreshBallisticChunkTicket();
+		} else {
+			this.entityData.set(DATA_BALLISTIC_FLIGHT_ACTIVE, false);
+		}
+	}
+
+	private static void putVec3(ValueOutput output, String prefix, Vec3 value) {
+		output.putDouble(prefix + "X", value.x);
+		output.putDouble(prefix + "Y", value.y);
+		output.putDouble(prefix + "Z", value.z);
+	}
+
+	private static Vec3 readVec3(ValueInput input, String prefix) {
+		return new Vec3(
+			input.getDoubleOr(prefix + "X", 0.0),
+			input.getDoubleOr(prefix + "Y", 0.0),
+			input.getDoubleOr(prefix + "Z", 0.0)
+		);
+	}
+
+	private static FlightPhase parseFlightPhase(String name) {
+		for (FlightPhase phase : FlightPhase.values()) {
+			if (phase.name().equals(name)) {
+				return phase;
+			}
+		}
+		return FlightPhase.SEARCHING;
 	}
 
 	public enum FlightPhase {

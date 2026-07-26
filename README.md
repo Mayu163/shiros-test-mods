@@ -11,7 +11,7 @@ gold-helmeted summoner that calls in timed reinforcements.
 | Mod name | Shiro's Test Mod |
 | Mod ID | `shiros-test-mod` |
 | Java package | `com.shiro193` |
-| Mod version | `1.0.5.1-beta` |
+| Mod version | `1.0.5.2-beta` |
 | Minecraft | `26.2` |
 | Fabric Loader | `0.19.3` or newer |
 | Fabric API | `0.155.2+26.2` |
@@ -304,13 +304,13 @@ changing the machine-wide Java configuration.
 After a build, the distributable mod is:
 
 ```text
-build/libs/shiros-test-mod-1.0.5.1-beta.jar
+build/libs/shiros-test-mod-1.0.5.2-beta.jar
 ```
 
 The matching source archive is:
 
 ```text
-build/libs/shiros-test-mod-1.0.5.1-beta-sources.jar
+build/libs/shiros-test-mod-1.0.5.2-beta-sources.jar
 ```
 
 ## Real-environment acceptance design
@@ -322,10 +322,12 @@ The test plan uses Minecraft itself rather than mocks.
 | Registration and eggs | Dedicated GameTest server | All three types are monsters; all three eggs resolve to the right type; Fly/CMD placement and heightmap equal vanilla Creeper. |
 | Natural spawn parity | Dedicated GameTest server | For every biome with a vanilla Creeper, the Fly and CMD entries have the same weight, minimum group, and maximum group. |
 | CMD capacity, helmet, and range hold | Dedicated GameTest server | A created CMD wears chainmail, has exactly two Elytra-equipped Fly passengers, rejects a third, and records zero approach requests while its target starts inside the 40-block throw range. |
-| Global high-arc launch invariant | Dedicated GameTest server | Real CMD capture/throws plus zero-distance, short, diagonal, 90-block, elevated-target, lowered-target, elevated-origin, and 48-block-ridge launches all rise at least 35 blocks. Elevated targets and the ridge force higher plans with terrain clearance. |
+| Global high-arc launch invariant | Dedicated GameTest server | Real CMD capture/throws plus zero-distance, short, diagonal, 90-block, elevated-target, lowered-target, elevated-origin, and 48-block-ridge launches all rise at least 35 blocks. Apex height also scales to at least half the horizontal distance, initial vertical speed is never less than horizontal speed, and elevated targets/terrain force still higher plans. |
+| Repeated CMD and disabled-AI launches | Dedicated GameTest server | Twelve CMD payload launches per suite cover short/max-range, diagonal, elevated/lowered targets, elevated origins, and a ridge while payload AI is disabled. Ballistic movement and synchronized client prediction remain active independently of `NoAI`. |
+| Flight persistence and chunk boundaries | Dedicated GameTest server | A mid-flight serialized/recreated Fly Creeper retains its destination, fixed velocity, apex, fuse schedule, and trail telemetry. Bounded, expiring chunk tickets keep every crossed flight chunk ticking. |
 | Obstructed launch safety | Dedicated GameTest server | A CMD Creeper trapped beneath solid overhead terrain refuses an impossible high-arc launch without throwing an exception, detaching either payload, or incrementing its throw count. |
 | Fixed launch course | Dedicated GameTest server | A second launch request plus horizontal and vertical velocity disturbance cannot change the stored destination, initial velocity, heading, or gravity schedule. |
-| Silent continuous rainbow trail | Dedicated and visible client GameTests | Autonomous and CMD takeoffs trigger once and record exactly one launch sound. Both payloads emit colored particles without a one-tick gap through the latter half and complete descent, cover all seven color phases, and the real-client descent frame visibly shows the multicolor trail. |
+| Silent continuous rainbow trail | Dedicated and visible client GameTests | Autonomous and CMD takeoffs trigger once and record exactly one launch sound. Both payloads emit on every active flight tick, including the completion tick, cover all seven color phases, and use always-visible 512-block broadcasts. The client test proves zero missed broadcasts beyond the old 32-block cutoff and visibly captures the multicolor descent trail. |
 | Prediction-timed ballistic attack | Dedicated GameTest server | A nearby Villager is acquired and both payloads are thrown. Each receives the derived ignition schedule, reaches within 2 blocks and within 3 ticks of its hit prediction, then detonates within 2 ticks. |
 | Fly attack | Dedicated GameTest server | A Fly Creeper acquires a Villager, becomes airborne, enters a dive, arms its fuse, and is removed by its completed explosion. |
 | Summon Creeper | Dedicated GameTest server | A gold-helmeted Summon Creeper triggers exactly one visual lightning bolt, produces three Fly Creepers at 10/20/30 seconds, and produces one fully loaded CMD Creeper at 30 seconds. |
@@ -337,7 +339,8 @@ The test plan uses Minecraft itself rather than mocks.
 Latest verified results on 2026-07-25:
 
 - `build`: **PASS**
-- Server GameTests: **PASS — 9/9 registered tests**
+- Server GameTests: **PASS — 11/11 registered tests, 3 consecutive final-code runs**
+- Repeated ballistic scenarios: **PASS — 63/63 measured launches**
 - Visible client GameTest: **PASS**
 - Trail inspection: **PASS — long, continuous, visible multicolor arc**
 - Visible client counts: **3 Fly Creepers, 1 CMD Creeper, 1 Summon Creeper, 1 Villager**
@@ -421,6 +424,8 @@ All dates are local device dates.
 | 2026-07-25 | Replaced the 80-tick trail cap with flight-lifetime emission and centralized every payload launch in a terrain-aware, immutable ballistic planner with a global 35-block minimum apex; all 8 server GameTests and the visible client test passed. |
 | 2026-07-25 | Published the verified flight-long trail and global high-arc invariant as the `1.0.5-beta` prerelease from `beta`. |
 | 2026-07-25 | Fixed an underground CMD Creeper crash by making impossible terrain-clearing plans fail safely before passenger detachment; all 9 server GameTests and the visible client test passed. |
+| 2026-07-25 | Made launched movement independent of `NoAI`, added distance-scaled/slope-bounded arcs, persisted launch state, ticketed flight chunks, extended trail broadcasts from 32 to 512 blocks, and passed 3 consecutive 11-test server runs covering 63 measured launches plus the visible client test. |
+| 2026-07-26 | Versioned the repeated-launch, immutable high-arc, persistent flight-state, chunk-ticking, and continuous long-distance trail corrections as the `1.0.5.2-beta` prerelease. |
 
 For the device-level audit trail, including intentions and failed test
 iterations, see [DEVICE_ACTIONS.md](DEVICE_ACTIONS.md).
